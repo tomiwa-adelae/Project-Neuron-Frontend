@@ -1,0 +1,236 @@
+"use client";
+
+import { useEffect, useState, useTransition } from "react";
+import { CalendarDays, CheckCircle2, Loader2, Pencil, Plus } from "lucide-react";
+import { toast } from "sonner";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import {
+  listSessions,
+  createSession,
+  updateSession,
+  activateSession,
+  ApiError,
+  type SessionRecord,
+} from "@/lib/api";
+import { TextField, DateField, ToggleField } from "../../_components/form-fields";
+
+export default function SessionsPage() {
+  const [rows, setRows] = useState<SessionRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<SessionRecord | null>(null);
+
+  const load = () => listSessions().then(setRows);
+
+  useEffect(() => {
+    load()
+      .catch((e) =>
+        toast.error(e instanceof ApiError ? e.message : "Couldn't load sessions."),
+      )
+      .finally(() => setLoading(false));
+  }, []);
+
+  const onActivate = async (s: SessionRecord) => {
+    try {
+      await activateSession(s.id);
+      await load();
+      toast.success(`${s.name} is now the current session.`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't activate.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-[#0b6b3a]" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-3xl space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-heading text-2xl font-semibold text-neutral-900">
+            Academic sessions
+          </h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            Capture always runs against the current session. Exactly one is
+            current at a time.
+          </p>
+        </div>
+        <Button
+          onClick={() => {
+            setEditing(null);
+            setOpen(true);
+          }}
+          className="h-10 bg-[#0b6b3a] text-white hover:bg-[#095a31]"
+        >
+          <Plus className="size-4" />
+          New session
+        </Button>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-neutral-300 p-10 text-center text-sm text-neutral-500">
+          No sessions yet. Create one and set it as current to enable capture.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {rows.map((s) => (
+            <li
+              key={s.id}
+              className={cn(
+                "flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4",
+                s.isCurrent ? "border-[#0b6b3a]/40" : "border-neutral-200",
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    "flex size-10 items-center justify-center rounded-lg",
+                    s.isCurrent
+                      ? "bg-[#0b6b3a]/10 text-[#0b6b3a]"
+                      : "bg-neutral-100 text-neutral-500",
+                  )}
+                >
+                  <CalendarDays className="size-5" />
+                </span>
+                <div>
+                  <p className="flex items-center gap-2 text-sm font-medium text-neutral-900">
+                    {s.name}
+                    {s.isCurrent && (
+                      <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-[#0b6b3a] ring-1 ring-inset ring-green-200">
+                        Current
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-neutral-500">
+                    {s.startDate ? new Date(s.startDate).toLocaleDateString() : "—"}
+                    {" → "}
+                    {s.endDate ? new Date(s.endDate).toLocaleDateString() : "—"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {!s.isCurrent && (
+                  <Button
+                    variant="outline"
+                    onClick={() => onActivate(s)}
+                    className="h-9"
+                  >
+                    <CheckCircle2 className="size-4" />
+                    Set current
+                  </Button>
+                )}
+                <button
+                  onClick={() => {
+                    setEditing(s);
+                    setOpen(true);
+                  }}
+                  className="rounded p-2 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+                  aria-label="Edit"
+                >
+                  <Pencil className="size-4" />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {open && (
+        <SessionDialog
+          editing={editing}
+          onClose={() => setOpen(false)}
+          onSaved={async () => {
+            setOpen(false);
+            await load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SessionDialog({
+  editing,
+  onClose,
+  onSaved,
+}: {
+  editing: SessionRecord | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(editing?.name ?? "");
+  const [startDate, setStartDate] = useState<string | null>(editing?.startDate ?? null);
+  const [endDate, setEndDate] = useState<string | null>(editing?.endDate ?? null);
+  const [isCurrent, setIsCurrent] = useState(editing?.isCurrent ?? false);
+  const [saving, startSave] = useTransition();
+
+  const save = () => {
+    if (!name.trim()) return toast.error("Session name is required.");
+    startSave(async () => {
+      try {
+        if (editing) {
+          await updateSession(editing.id, { name, startDate, endDate });
+        } else {
+          await createSession({ name, startDate, endDate, isCurrent });
+        }
+        toast.success(editing ? "Session updated." : "Session created.");
+        onSaved();
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
+      }
+    });
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{editing ? "Edit session" : "New session"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <TextField
+            label="Session name"
+            required
+            value={name}
+            onChange={(v) => setName(v ?? "")}
+            placeholder="e.g. 2025/2026"
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <DateField label="Start date" value={startDate} onChange={setStartDate} />
+            <DateField label="End date" value={endDate} onChange={setEndDate} />
+          </div>
+          {!editing && (
+            <ToggleField
+              label="Make this the current session?"
+              value={isCurrent}
+              onChange={setIsCurrent}
+            />
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            {editing ? "Save changes" : "Create session"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

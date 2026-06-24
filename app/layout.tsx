@@ -2,6 +2,7 @@ import { Geist, Geist_Mono, Inter, Outfit } from "next/font/google"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/sonner"
 import { cn } from "@/lib/utils";
 
 const outfitHeading = Outfit({subsets:['latin'],variable:'--font-heading'});
@@ -26,6 +27,7 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>{children}</ThemeProvider>
+        <Toaster richColors position="top-center" />
       </body>
     </html>
   )
