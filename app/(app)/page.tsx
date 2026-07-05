@@ -23,7 +23,7 @@ import {
   type SchoolWorklistItem,
   type CaptureStatus,
 } from "@/lib/api";
-import { useAuth } from "./_components/app-shell";
+import { useAuth } from "./_components/auth-provider";
 import { StatusBadge } from "./_components/status-badge";
 import { AdminDashboard } from "./_components/admin-dashboard";
 import { canViewAdminDashboard, isCaptureRole } from "@/lib/access";

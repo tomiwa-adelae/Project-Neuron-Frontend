@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShieldX } from "lucide-react";
-import { useAuth } from "../_components/app-shell";
+import { useAuth } from "../_components/auth-provider";
 import { isAdmin, canVerify, canViewRisk } from "@/lib/access";
 
 // Most /admin pages are SYS_ADMIN-only; submissions & risk are open to the

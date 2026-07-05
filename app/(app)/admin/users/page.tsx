@@ -45,7 +45,7 @@ import {
   type ScopeInput,
   type StatusAction,
 } from "@/lib/api";
-import { useAuth } from "../../_components/app-shell";
+import { useAuth } from "../../_components/auth-provider";
 import { RoleScopeFields, UserStatusBadge, roleLabel } from "../_components/admin-bits";
 import { TextField } from "../../_components/form-fields";
 

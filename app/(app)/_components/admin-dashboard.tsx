@@ -19,7 +19,7 @@ import {
   ApiError,
   type AdminSummary,
 } from "@/lib/api";
-import { useAuth } from "./app-shell";
+import { useAuth } from "./auth-provider";
 import { isAdmin, canVerify, canViewRisk } from "@/lib/access";
 
 export function AdminDashboard() {
