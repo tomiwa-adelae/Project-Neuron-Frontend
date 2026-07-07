@@ -12,6 +12,52 @@ export class ApiError extends Error {
   }
 }
 
+// ─── Silent token refresh ─────────────────────────────────────────────────────
+//
+// The short-lived access token lives in an httpOnly cookie; when it expires the
+// API returns 401. We transparently POST /auth/refresh once (the refresh cookie
+// is longer-lived) and retry the original request. Concurrent 401s share a
+// single in-flight refresh so we never fire a burst of refresh calls. If refresh
+// fails, the original 401 surfaces and the caller bounces to /login.
+let refreshInFlight: Promise<boolean> | null = null;
+
+// Paths where a 401 is expected/meaningful and must NOT trigger a refresh:
+// unauthenticated flows, and /auth/refresh itself (to avoid an infinite loop).
+const NO_REFRESH_PATHS = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/forgot-password",
+  "/auth/verify-otp",
+  "/auth/reset-password",
+];
+
+function canRefresh(path: string): boolean {
+  return !NO_REFRESH_PATHS.some((p) => path.startsWith(p));
+}
+
+async function doRefresh(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 /**
  * Thin fetch wrapper. `credentials: "include"` is required so the browser sends
  * and stores the httpOnly auth cookies the API sets (RBAC Rule 7 — the JWT lives
@@ -20,6 +66,7 @@ export class ApiError extends Error {
 export async function apiFetch<T = unknown>(
   path: string,
   init?: RequestInit,
+  retryOn401 = true,
 ): Promise<T> {
   let res: Response;
   try {
@@ -37,6 +84,13 @@ export async function apiFetch<T = unknown>(
       "Can't reach the server. Check your connection and try again.",
       0,
     );
+  }
+
+  // Access token expired: refresh once and replay the original request.
+  if (res.status === 401 && retryOn401 && canRefresh(path)) {
+    if (await refreshSession()) {
+      return apiFetch<T>(path, init, false);
+    }
   }
 
   const isJson = res.headers
@@ -593,6 +647,7 @@ export interface SchoolMedia {
 async function apiUpload<T = unknown>(
   path: string,
   formData: FormData,
+  retryOn401 = true,
 ): Promise<T> {
   let res: Response;
   try {
@@ -606,6 +661,13 @@ async function apiUpload<T = unknown>(
       "Can't reach the server. Check your connection and try again.",
       0,
     );
+  }
+  // Access token expired mid-upload: refresh once and replay. FormData is
+  // reusable across fetches, so the same body can be re-sent.
+  if (res.status === 401 && retryOn401 && canRefresh(path)) {
+    if (await refreshSession()) {
+      return apiUpload<T>(path, formData, false);
+    }
   }
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const body = isJson ? await res.json() : null;
