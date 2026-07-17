@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ChevronRight, Loader2, MapPin, Search } from "lucide-react";
+import { AlertCircle, ChevronRight, Loader2, MapPin, Search, WifiOff } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ import {
   type CaptureStatus,
   type AcademicSession,
 } from "@/lib/api";
+import { cacheSchools, readCachedSchools } from "@/lib/offline/schools";
 import { StatusBadge } from "../_components/status-badge";
 
 type Filter = "ALL" | CaptureStatus;
@@ -39,24 +40,41 @@ export default function SchoolsPage() {
   const [session, setSession] = useState<AcademicSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [offline, setOffline] = useState<{ stale: boolean } | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("ALL");
 
   useEffect(() => {
     let active = true;
-    getSchools()
-      .then((res) => {
+    (async () => {
+      try {
+        const res = await getSchools();
         if (!active) return;
         setSchools(res.schools);
         setSession(res.session);
-      })
-      .catch((err) => {
+        setOffline(null);
+        // Mirror the scoped worklist for offline search (best-effort).
+        void cacheSchools(res.session, res.schools);
+      } catch (err) {
         if (!active) return;
-        setError(
-          err instanceof ApiError ? err.message : "Couldn't load schools.",
-        );
-      })
-      .finally(() => active && setLoading(false));
+        // On a network failure, fall back to the cached registry so the LIE can
+        // still browse/search schools offline.
+        const isNetwork = err instanceof ApiError && err.status === 0;
+        const cached = isNetwork ? await readCachedSchools() : null;
+        if (!active) return;
+        if (cached && cached.schools.length > 0) {
+          setSchools(cached.schools);
+          setSession(cached.session);
+          setOffline({ stale: cached.stale });
+        } else {
+          setError(
+            err instanceof ApiError ? err.message : "Couldn't load schools.",
+          );
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
     return () => {
       active = false;
     };
@@ -103,6 +121,17 @@ export default function SchoolsPage() {
           {session ? ` · Session ${session.name}` : ""}
         </p>
       </div>
+
+      {offline && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <WifiOff className="mt-0.5 size-4 shrink-0" />
+          <span>
+            You&rsquo;re offline — showing the last saved school list
+            {offline.stale ? " (over a week old; reconnect to refresh)" : ""}.
+            New captures will sync when you&rsquo;re back online.
+          </span>
+        </div>
+      )}
 
       <div className="rounded-xl border border-neutral-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 p-4">

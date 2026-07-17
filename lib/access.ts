@@ -34,3 +34,7 @@ export const canViewAdminDashboard = (role: string) =>
 export const canVerify = (role: string) => VERIFY_ROLES.includes(role);
 export const canViewRisk = (role: string) => RISK_ROLES.includes(role);
 export const isCaptureRole = (role: string) => CAPTURE_ROLES.includes(role);
+
+// School principal — self-service, scoped to their single assigned school. Gets a
+// focused one-school workspace, not the LIE worklist or any oversight surface.
+export const isPrincipal = (role: string) => role === "PRINCIPAL";

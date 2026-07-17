@@ -151,12 +151,18 @@ function ApproveDialog({
     assignedLga: user.assignedLga,
     assignedZone: user.assignedZone,
     assignedCluster: user.assignedCluster,
+    // Carry the school a self-registering principal requested, so the admin
+    // confirms (rather than silently drops) their binding on approval.
+    assignedSchoolId: user.assignedSchoolId,
   });
   const [saving, startSave] = useTransition();
 
   const save = () => {
     if (scope.role === "LIE" && !scope.assignedLga?.trim()) {
       return toast.error("Assign an LGA for a field inspector.");
+    }
+    if (scope.role === "PRINCIPAL" && !scope.assignedSchoolId) {
+      return toast.error("Assign a school for a principal.");
     }
     startSave(async () => {
       try {

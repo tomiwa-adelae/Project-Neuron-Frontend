@@ -309,6 +309,9 @@ function ProvisionDialog({
     if (!firstName || !lastName || !email || !phoneNumber) {
       return toast.error("Name, email and phone are required.");
     }
+    if (scope.role === "PRINCIPAL" && !scope.assignedSchoolId) {
+      return toast.error("Assign a school for a principal.");
+    }
     startSave(async () => {
       try {
         const res = await provisionUser({
@@ -373,10 +376,14 @@ function EditRoleDialog({
     assignedLga: user.assignedLga,
     assignedZone: user.assignedZone,
     assignedCluster: user.assignedCluster,
+    assignedSchoolId: user.assignedSchoolId,
   });
   const [saving, startSave] = useTransition();
 
   const save = () => {
+    if (scope.role === "PRINCIPAL" && !scope.assignedSchoolId) {
+      return toast.error("Assign a school for a principal.");
+    }
     startSave(async () => {
       try {
         await updateUserRole(user.id, scope);

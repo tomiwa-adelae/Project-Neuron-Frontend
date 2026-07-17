@@ -121,6 +121,7 @@ export interface AuthUser {
   assignedLga: string | null;
   assignedZone: string | null;
   assignedCluster: string | null;
+  assignedSchoolId: string | null;
 }
 
 export interface LoginResponse {
@@ -149,6 +150,22 @@ export interface RegisterInput {
   phoneNumber: string;
   password: string;
   confirmPassword: string;
+  // Self-service principal path: set role and the school being requested. The
+  // admin confirms the binding on approval. Omit both for a default LIE signup.
+  role?: "PRINCIPAL";
+  requestedSchoolId?: string;
+}
+
+// PII-free school directory for the self-registration picker (unauthenticated).
+export interface PublicSchool {
+  id: string;
+  name: string;
+  code: string;
+  lgaName: string;
+}
+
+export function getPublicSchools(): Promise<{ schools: PublicSchool[] }> {
+  return apiFetch<{ schools: PublicSchool[] }>("/public/schools");
 }
 
 export interface RegisterResponse {
@@ -229,6 +246,7 @@ export interface MeResponse {
   assignedLga: string | null;
   assignedZone: string | null;
   assignedCluster: string | null;
+  assignedSchoolId: string | null;
 }
 
 // Reads identity from the httpOnly cookie. Throws ApiError(401) when not signed
@@ -416,6 +434,14 @@ export interface SecurityProfile extends SecurityAssessmentInput {
 export interface SchoolDetail {
   school: SchoolMaster;
   session: AcademicSession | null;
+  // The capture period this detail reflects, and whether it is read-only history.
+  period: {
+    id: string;
+    name: string;
+    isCurrent: boolean;
+    closedAt: string | null;
+  } | null;
+  readOnly: boolean;
   visit: {
     id: string;
     sections: {
@@ -723,6 +749,7 @@ export const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "EXEC_VIEW", label: "Executive (dashboard only)" },
   { value: "SYS_ADMIN", label: "System Administrator" },
   { value: "SERVICE_ACCOUNT", label: "Service Account" },
+  { value: "PRINCIPAL", label: "Principal — School head" },
 ];
 
 export const ACCOUNT_STATUSES = [
@@ -744,6 +771,7 @@ export interface AdminUser {
   assignedLga: string | null;
   assignedZone: string | null;
   assignedCluster: string | null;
+  assignedSchoolId: string | null;
   requiresPasswordChange: boolean;
   isServiceAccount: boolean;
   actionById: string | null;
@@ -756,6 +784,7 @@ export interface ScopeInput {
   assignedLga?: string | null;
   assignedZone?: string | null;
   assignedCluster?: string | null;
+  assignedSchoolId?: string | null;
 }
 
 export function listUsers(params?: {
@@ -856,6 +885,49 @@ export const updateSession = (
 
 export const activateSession = (id: string) =>
   apiFetch<SessionRecord>(`/sessions/${id}/activate`, { method: "PATCH" });
+
+// ─── Capture periods (rounds within a session) ────────────────────────────────
+
+export interface CapturePeriod {
+  id: string;
+  sessionId: string;
+  name: string;
+  sequence: number;
+  startDate: string | null;
+  endDate: string | null;
+  isCurrent: boolean;
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const listPeriods = (sessionId: string) =>
+  apiFetch<CapturePeriod[]>(`/sessions/${sessionId}/periods`);
+
+export const createPeriod = (
+  sessionId: string,
+  input: { name: string; sequence?: number; startDate?: string | null; endDate?: string | null },
+) =>
+  apiFetch<CapturePeriod>(`/sessions/${sessionId}/periods`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const updatePeriod = (
+  id: string,
+  input: { name?: string; sequence?: number; startDate?: string | null; endDate?: string | null },
+) =>
+  apiFetch<CapturePeriod>(`/sessions/periods/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+
+export const activatePeriod = (id: string) =>
+  apiFetch<CapturePeriod>(`/sessions/periods/${id}/activate`, { method: "PATCH" });
+
+// The live capture period (any authenticated user) — for capture-UI context.
+export const getCurrentPeriod = () =>
+  apiFetch<CapturePeriod>("/sessions/periods/current");
 
 // School registry (admin) — full rows incl. inactive.
 export const SCHOOL_TYPE_OPTIONS = [

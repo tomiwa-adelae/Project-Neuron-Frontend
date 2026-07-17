@@ -26,11 +26,17 @@ import {
 import { useAuth } from "./_components/auth-provider";
 import { StatusBadge } from "./_components/status-badge";
 import { AdminDashboard } from "./_components/admin-dashboard";
-import { canViewAdminDashboard, isCaptureRole } from "@/lib/access";
+import { PrincipalDashboard } from "./_components/principal-dashboard";
+import {
+  canViewAdminDashboard,
+  isCaptureRole,
+  isPrincipal,
+} from "@/lib/access";
 
 export default function DashboardHome() {
   const user = useAuth();
   if (canViewAdminDashboard(user.role)) return <AdminDashboard />;
+  if (isPrincipal(user.role)) return <PrincipalDashboard />;
   if (isCaptureRole(user.role)) return <LieDashboard />;
   return <RolePending name={user.firstName} role={user.role} />;
 }

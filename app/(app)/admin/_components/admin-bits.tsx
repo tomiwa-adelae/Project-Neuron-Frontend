@@ -1,7 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ROLE_OPTIONS, type ScopeInput } from "@/lib/api";
+import {
+  ROLE_OPTIONS,
+  getPublicSchools,
+  type ScopeInput,
+  type PublicSchool,
+} from "@/lib/api";
 import { TextField } from "../../_components/form-fields";
 
 export function roleLabel(role: string): string {
@@ -42,6 +48,15 @@ export function RoleScopeFields({
   onChange: (v: ScopeInput) => void;
 }) {
   const set = (p: Partial<ScopeInput>) => onChange({ ...value, ...p });
+
+  // School directory for the PRINCIPAL binding. Loaded lazily on first use.
+  const [schools, setSchools] = useState<PublicSchool[]>([]);
+  useEffect(() => {
+    if (value.role !== "PRINCIPAL" || schools.length) return;
+    getPublicSchools()
+      .then((r) => setSchools(r.schools))
+      .catch(() => {});
+  }, [value.role, schools.length]);
 
   return (
     <>
@@ -85,6 +100,25 @@ export function RoleScopeFields({
           onChange={(v) => set({ assignedCluster: v })}
           placeholder="School cluster"
         />
+      )}
+      {value.role === "PRINCIPAL" && (
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-neutral-700">
+            Assigned school <span className="text-red-500">*</span>
+          </label>
+          <select
+            value={value.assignedSchoolId ?? ""}
+            onChange={(e) => set({ assignedSchoolId: e.target.value || null })}
+            className={FIELD}
+          >
+            <option value="">Select a school…</option>
+            {schools.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.code}) · {s.lgaName}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
     </>
   );

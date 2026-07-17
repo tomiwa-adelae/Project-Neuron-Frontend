@@ -22,6 +22,7 @@ import {
   type SecurityAssessmentInput,
   type SecurityProfile,
 } from "@/lib/api";
+import { queueSecurity } from "@/lib/offline/queue";
 
 const FIELD =
   "h-10 rounded-md border-neutral-200 bg-neutral-50 text-sm text-neutral-900 focus-visible:border-[#0b6b3a] focus-visible:ring-2 focus-visible:ring-[#0b6b3a]/20";
@@ -66,6 +67,12 @@ export function SecurityAssessmentForm({
         toast.success("Draft saved.");
         router.refresh();
       } catch (err) {
+        // Offline: queue the draft and let the background sync flush it later.
+        if (err instanceof ApiError && err.status === 0) {
+          await queueSecurity("security-draft", schoolId, form);
+          toast.success("Saved offline — will sync when you reconnect.");
+          return;
+        }
         toast.error(
           err instanceof ApiError ? err.message : "Couldn't save the draft.",
         );
@@ -83,6 +90,13 @@ export function SecurityAssessmentForm({
         );
         router.push(`/schools/${schoolId}`);
       } catch (err) {
+        // Offline: queue the submission; it'll be sent when connectivity returns.
+        if (err instanceof ApiError && err.status === 0) {
+          await queueSecurity("security-submit", schoolId, form);
+          toast.success("Saved offline — will submit when you reconnect.");
+          router.push(`/schools/${schoolId}`);
+          return;
+        }
         toast.error(
           err instanceof ApiError
             ? err.message

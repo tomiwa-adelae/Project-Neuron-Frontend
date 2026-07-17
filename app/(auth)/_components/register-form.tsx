@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,7 +18,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { RegisterSchema, type RegisterSchemaType } from "@/lib/zodSchema";
-import { register as registerUser, ApiError } from "@/lib/api";
+import {
+  register as registerUser,
+  getPublicSchools,
+  ApiError,
+  type PublicSchool,
+} from "@/lib/api";
+
+type AccountType = "LIE" | "PRINCIPAL";
 
 const FIELD =
   "h-11 rounded-md border-neutral-200 bg-neutral-50 text-sm text-neutral-900 placeholder:text-neutral-400 focus-visible:border-[#0b6b3a] focus-visible:ring-2 focus-visible:ring-[#0b6b3a]/20";
@@ -28,6 +35,20 @@ export function RegisterForm() {
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  // Account type is managed outside the zod form: a default field inspector (LIE)
+  // or a school principal, who must also pick their school.
+  const [accountType, setAccountType] = useState<AccountType>("LIE");
+  const [schoolId, setSchoolId] = useState("");
+  const [schools, setSchools] = useState<PublicSchool[]>([]);
+  const isPrincipal = accountType === "PRINCIPAL";
+
+  useEffect(() => {
+    if (!isPrincipal || schools.length) return;
+    getPublicSchools()
+      .then((r) => setSchools(r.schools))
+      .catch(() => toast.error("Couldn't load the list of schools."));
+  }, [isPrincipal, schools.length]);
 
   const form = useForm<RegisterSchemaType>({
     resolver: zodResolver(RegisterSchema),
@@ -42,9 +63,17 @@ export function RegisterForm() {
   });
 
   const onSubmit = (values: RegisterSchemaType) => {
+    if (isPrincipal && !schoolId) {
+      toast.error("Select the school you are the principal of.");
+      return;
+    }
     startTransition(async () => {
       try {
-        await registerUser(values);
+        await registerUser(
+          isPrincipal
+            ? { ...values, role: "PRINCIPAL", requestedSchoolId: schoolId }
+            : values,
+        );
         toast.success("Registration submitted.");
         setSubmitted(true);
       } catch (err) {
@@ -81,6 +110,61 @@ export function RegisterForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        {/* Account type */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-neutral-700">
+            I am registering as
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                ["LIE", "Field inspector"],
+                ["PRINCIPAL", "School principal"],
+              ] as [AccountType, string][]
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setAccountType(value)}
+                aria-pressed={accountType === value}
+                className={
+                  "h-11 rounded-md border px-3 text-sm font-medium transition-colors " +
+                  (accountType === value
+                    ? "border-[#0b6b3a] bg-[#0b6b3a]/5 text-[#0b6b3a]"
+                    : "border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* School picker — principals only */}
+        {isPrincipal && (
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-neutral-700">
+              Your school <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={schoolId}
+              onChange={(e) => setSchoolId(e.target.value)}
+              className={`${FIELD} w-full px-3`}
+            >
+              <option value="">Select your school…</option>
+              {schools.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.code}) · {s.lgaName}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-neutral-500">
+              An administrator will confirm your school before your account is
+              activated.
+            </p>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormField
             control={form.control}

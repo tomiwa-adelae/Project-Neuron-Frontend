@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { CalendarDays, CheckCircle2, Loader2, Pencil, Plus } from "lucide-react";
+import {
+  CalendarDays,
+  CheckCircle2,
+  Layers,
+  Loader2,
+  Lock,
+  Pencil,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -18,8 +26,13 @@ import {
   createSession,
   updateSession,
   activateSession,
+  listPeriods,
+  createPeriod,
+  updatePeriod,
+  activatePeriod,
   ApiError,
   type SessionRecord,
+  type CapturePeriod,
 } from "@/lib/api";
 import { TextField, DateField, ToggleField } from "../../_components/form-fields";
 
@@ -28,6 +41,7 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<SessionRecord | null>(null);
+  const [managing, setManaging] = useState<SessionRecord | null>(null);
 
   const load = () => listSessions().then(setRows);
 
@@ -123,6 +137,14 @@ export default function SessionsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setManaging(s)}
+                  className="h-9"
+                >
+                  <Layers className="size-4" />
+                  Periods
+                </Button>
                 {!s.isCurrent && (
                   <Button
                     variant="outline"
@@ -159,6 +181,231 @@ export default function SessionsPage() {
           }}
         />
       )}
+
+      {managing && (
+        <PeriodsDialog session={managing} onClose={() => setManaging(null)} />
+      )}
+    </div>
+  );
+}
+
+// Manage the capture rounds (periods) within a session. Activating one closes the
+// currently-active period, which freezes its captured data as read-only history.
+function PeriodsDialog({
+  session,
+  onClose,
+}: {
+  session: SessionRecord;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<CapturePeriod[] | null>(null);
+  const [editing, setEditing] = useState<CapturePeriod | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [busy, startBusy] = useTransition();
+
+  const load = () => listPeriods(session.id).then(setRows);
+
+  useEffect(() => {
+    load().catch((e) =>
+      toast.error(e instanceof ApiError ? e.message : "Couldn't load periods."),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
+  const onActivate = (p: CapturePeriod) => {
+    if (
+      !confirm(
+        `Activate "${p.name}"? This closes the current period and starts a fresh capture round. Closed periods become read-only.`,
+      )
+    )
+      return;
+    startBusy(async () => {
+      try {
+        await activatePeriod(p.id);
+        await load();
+        toast.success(`"${p.name}" is now the active capture period.`);
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Couldn't activate.");
+      }
+    });
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Capture periods — {session.name}</DialogTitle>
+        </DialogHeader>
+
+        {showForm ? (
+          <PeriodForm
+            sessionId={session.id}
+            editing={editing}
+            onCancel={() => {
+              setShowForm(false);
+              setEditing(null);
+            }}
+            onSaved={async () => {
+              setShowForm(false);
+              setEditing(null);
+              await load();
+            }}
+          />
+        ) : (
+          <>
+            <div className="space-y-2">
+              {rows === null ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 className="size-5 animate-spin text-[#0b6b3a]" />
+                </div>
+              ) : rows.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500">
+                  No periods yet. Add the first one (e.g. &quot;Term 1&quot;) to
+                  begin capture for this session.
+                </p>
+              ) : (
+                rows.map((p) => (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded-lg border bg-white p-3",
+                      p.isCurrent ? "border-[#0b6b3a]/40" : "border-neutral-200",
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-2 text-sm font-medium text-neutral-900">
+                        {p.name}
+                        {p.isCurrent && (
+                          <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-[#0b6b3a] ring-1 ring-inset ring-green-200">
+                            Active
+                          </span>
+                        )}
+                        {p.closedAt && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500">
+                            <Lock className="size-3" /> Closed
+                          </span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-xs text-neutral-500">
+                        Round {p.sequence}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {!p.isCurrent && (
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => onActivate(p)}
+                          className="h-8 text-xs"
+                        >
+                          Activate
+                        </Button>
+                      )}
+                      {!p.closedAt && (
+                        <button
+                          onClick={() => {
+                            setEditing(p);
+                            setShowForm(true);
+                          }}
+                          className="rounded p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+                          aria-label="Edit period"
+                        >
+                          <Pencil className="size-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <DialogFooter className="sm:justify-between">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditing(null);
+                  setShowForm(true);
+                }}
+              >
+                <Plus className="size-4" />
+                Add period
+              </Button>
+              <Button
+                onClick={onClose}
+                className="bg-[#0b6b3a] text-white hover:bg-[#095a31]"
+              >
+                Done
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PeriodForm({
+  sessionId,
+  editing,
+  onCancel,
+  onSaved,
+}: {
+  sessionId: string;
+  editing: CapturePeriod | null;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(editing?.name ?? "");
+  const [sequence, setSequence] = useState(String(editing?.sequence ?? ""));
+  const [startDate, setStartDate] = useState<string | null>(editing?.startDate ?? null);
+  const [endDate, setEndDate] = useState<string | null>(editing?.endDate ?? null);
+  const [saving, startSave] = useTransition();
+
+  const save = () => {
+    if (!name.trim()) return toast.error("Period name is required.");
+    const seq = sequence.trim() ? Number(sequence) : undefined;
+    startSave(async () => {
+      try {
+        if (editing) {
+          await updatePeriod(editing.id, { name, sequence: seq, startDate, endDate });
+        } else {
+          await createPeriod(sessionId, { name, sequence: seq, startDate, endDate });
+        }
+        toast.success(editing ? "Period updated." : "Period added.");
+        onSaved();
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Couldn't save period.");
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <TextField
+        label="Period name"
+        required
+        value={name}
+        onChange={(v) => setName(v ?? "")}
+        placeholder="e.g. Term 1"
+      />
+      <TextField
+        label="Order (round number)"
+        value={sequence}
+        onChange={(v) => setSequence(v ?? "")}
+        placeholder="e.g. 1"
+      />
+      <div className="grid grid-cols-2 gap-4">
+        <DateField label="Start date" value={startDate} onChange={setStartDate} />
+        <DateField label="End date" value={endDate} onChange={setEndDate} />
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+          {saving && <Loader2 className="size-4 animate-spin" />}
+          {editing ? "Save period" : "Add period"}
+        </Button>
+      </DialogFooter>
     </div>
   );
 }

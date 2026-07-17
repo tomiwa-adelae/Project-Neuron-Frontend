@@ -35,6 +35,7 @@ import {
   canVerify,
   canViewRisk,
   isCaptureRole,
+  isPrincipal,
 } from "@/lib/access"
 
 type NavItem = { title: string; url: string; icon: React.ElementType }
@@ -76,6 +77,11 @@ function navFor(role: string): NavItem[] {
       { title: "Schools", url: "/schools", icon: SchoolIcon },
       { title: "My captures", url: "/captures", icon: ClipboardListIcon },
     ]
+  }
+
+  // School principals — one school only.
+  if (isPrincipal(role)) {
+    return [{ title: "My school", url: "/", icon: SchoolIcon }]
   }
 
   // Roles without a configured workspace yet (e.g. INSPECT_OFFICER).
