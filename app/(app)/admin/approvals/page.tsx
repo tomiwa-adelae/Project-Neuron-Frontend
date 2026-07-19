@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckCircle2, Clock, Loader2, Mail, Phone, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Form } from "@/components/ui/form";
 import {
   listUsers,
   approveUser,
@@ -21,7 +23,14 @@ import {
   type AdminUser,
   type ScopeInput,
 } from "@/lib/api";
+import {
+  ScopeSchema,
+  type ScopeSchemaType,
+  RejectSchema,
+  type RejectSchemaType,
+} from "@/lib/schemas";
 import { RoleScopeFields } from "../_components/admin-bits";
+import { RHFTextarea } from "../../_components/rhf-fields";
 
 export default function ApprovalsPage() {
   const [rows, setRows] = useState<AdminUser[]>([]);
@@ -146,33 +155,29 @@ function ApproveDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [scope, setScope] = useState<ScopeInput>({
-    role: user.role || "LIE",
-    assignedLga: user.assignedLga,
-    assignedZone: user.assignedZone,
-    assignedCluster: user.assignedCluster,
-    // Carry the school a self-registering principal requested, so the admin
-    // confirms (rather than silently drops) their binding on approval.
-    assignedSchoolId: user.assignedSchoolId,
+  const form = useForm<ScopeSchemaType>({
+    resolver: zodResolver(ScopeSchema),
+    defaultValues: {
+      role: user.role || "LIE",
+      assignedLga: user.assignedLga ?? "",
+      assignedZone: user.assignedZone ?? "",
+      assignedCluster: user.assignedCluster ?? "",
+      // Carry the school a self-registering principal requested, so the admin
+      // confirms (rather than silently drops) their binding on approval.
+      assignedSchoolId: user.assignedSchoolId ?? "",
+    },
   });
-  const [saving, startSave] = useTransition();
+  const submitting = form.formState.isSubmitting;
+  const role = form.watch("role");
 
-  const save = () => {
-    if (scope.role === "LIE" && !scope.assignedLga?.trim()) {
-      return toast.error("Assign an LGA for a field inspector.");
+  const onSubmit = async (values: ScopeSchemaType) => {
+    try {
+      await approveUser(user.id, values as ScopeInput);
+      toast.success(`${user.firstName} approved.`);
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't approve.");
     }
-    if (scope.role === "PRINCIPAL" && !scope.assignedSchoolId) {
-      return toast.error("Assign a school for a principal.");
-    }
-    startSave(async () => {
-      try {
-        await approveUser(user.id, scope);
-        toast.success(`${user.firstName} approved.`);
-        onDone();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't approve.");
-      }
-    });
   };
 
   return (
@@ -183,25 +188,27 @@ function ApproveDialog({
             Approve {user.firstName} {user.lastName}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <p className="text-sm text-neutral-500">
-            Set the role and scope this account will have once active.
-          </p>
-          <RoleScopeFields value={scope} onChange={setScope} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            onClick={save}
-            disabled={saving}
-            className="bg-[#0b6b3a] text-white hover:bg-[#095a31]"
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Approve &amp; activate
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <p className="text-sm text-neutral-500">
+              Set the role and scope this account will have once active.
+            </p>
+            <RoleScopeFields role={role} />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={submitting}
+                className="bg-[#0b6b3a] text-white hover:bg-[#095a31]"
+              >
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                Approve &amp; activate
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
@@ -216,19 +223,20 @@ function RejectDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [reason, setReason] = useState("");
-  const [saving, startSave] = useTransition();
+  const form = useForm<RejectSchemaType>({
+    resolver: zodResolver(RejectSchema),
+    defaultValues: { reason: "" },
+  });
+  const submitting = form.formState.isSubmitting;
 
-  const save = () => {
-    startSave(async () => {
-      try {
-        await rejectUser(user.id, reason.trim() || undefined);
-        toast.success(`${user.firstName}'s registration rejected.`);
-        onDone();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't reject.");
-      }
-    });
+  const onSubmit = async (values: RejectSchemaType) => {
+    try {
+      await rejectUser(user.id, values.reason?.trim() || undefined);
+      toast.success(`${user.firstName}'s registration rejected.`);
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't reject.");
+    }
   };
 
   return (
@@ -237,31 +245,29 @@ function RejectDialog({
         <DialogHeader>
           <DialogTitle>Reject {user.firstName} {user.lastName}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-neutral-700">
-            Reason (optional — included in the email)
-          </label>
-          <Textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={3}
-            placeholder="e.g. Could not verify your posting."
-            className="text-sm"
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            onClick={save}
-            disabled={saving}
-            className="bg-red-600 text-white hover:bg-red-700"
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Reject registration
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <RHFTextarea
+              control={form.control}
+              name="reason"
+              label="Reason (optional — included in the email)"
+              placeholder="e.g. Could not verify your posting."
+            />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={submitting}
+                className="bg-red-600 text-white hover:bg-red-700"
+              >
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                Reject registration
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

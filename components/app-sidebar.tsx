@@ -14,6 +14,7 @@ import {
   UserCheckIcon,
   UsersIcon,
   StarIcon,
+  LibraryIcon,
 } from "lucide-react"
 
 import { NavUser } from "@/components/nav-user"
@@ -52,6 +53,7 @@ function navFor(role: string): NavItem[] {
       { title: "Users", url: "/admin/users", icon: UsersIcon },
       { title: "Sessions", url: "/admin/sessions", icon: CalendarDaysIcon },
       { title: "School registry", url: "/admin/schools", icon: SchoolIcon },
+      { title: "Reference data", url: "/admin/reference", icon: LibraryIcon },
       { title: "Audit log", url: "/admin/audit", icon: ScrollTextIcon },
     ]
   }

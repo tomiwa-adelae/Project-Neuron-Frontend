@@ -386,6 +386,11 @@ export interface SchoolMaster {
   address: string | null;
   latitude: number | null;
   longitude: number | null;
+  dateEstablished: number | null;
+  gpsAccuracyMetres: number | null;
+  gpsSampleCount: number | null;
+  gpsCaptureTimestamp: string | null;
+  gpsVerified: boolean;
   isActive: boolean;
 }
 
@@ -422,6 +427,13 @@ export interface SecurityAssessmentInput {
 
 export interface SecurityProfile extends SecurityAssessmentInput {
   id: string;
+  // Capture-context/identity columns present on the row — NOT part of the editable
+  // assessment. `toForm` strips these before sending back to the API.
+  schoolId: string;
+  sessionId: string;
+  periodId: string;
+  collectedById: string | null;
+  source: string;
   recordStatus: CaptureStatus;
   submittedAt: string | null;
   isolationScore: number | null;
@@ -429,6 +441,8 @@ export interface SecurityProfile extends SecurityAssessmentInput {
   communicationScore: number | null;
   compositeRiskScore: number | null;
   riskTier: "High" | "Moderate" | "Low" | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SchoolDetail {
@@ -458,6 +472,32 @@ export interface SchoolDetail {
 
 export function getSchool(id: string): Promise<SchoolDetail> {
   return apiFetch<SchoolDetail>(`/schools/${id}`);
+}
+
+// Live GPS captured at the school gate (Field Capture Guide §1.4).
+export interface CapturedGps {
+  id: string;
+  latitude: number | null;
+  longitude: number | null;
+  gpsAccuracyMetres: number | null;
+  gpsSampleCount: number | null;
+  gpsCaptureTimestamp: string | null;
+  gpsVerified: boolean;
+}
+
+export function captureSchoolGps(
+  id: string,
+  input: {
+    latitude: number;
+    longitude: number;
+    accuracyMetres?: number;
+    sampleCount?: number;
+  },
+): Promise<CapturedGps> {
+  return apiFetch<CapturedGps>(`/schools/${id}/gps`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export function saveSecurityAssessment(
@@ -655,7 +695,7 @@ export interface SchoolMedia {
   id: string;
   category: string;
   caption: string;
-  mediaType: string;
+  mediaType: string; // "image" | "video"
   fileUrl: string;
   publicId: string;
   originalFileName: string | null;
@@ -663,9 +703,13 @@ export interface SchoolMedia {
   bytes: number | null;
   width: number | null;
   height: number | null;
+  videoDurationSecs: number | null;
   gpsLatitude: number | null;
   gpsLongitude: number | null;
+  captureTimestamp: string | null;
   isPrimary: boolean;
+  isFlagged: boolean;
+  flagReason: string | null;
   createdAt: string;
 }
 
@@ -929,6 +973,58 @@ export const activatePeriod = (id: string) =>
 export const getCurrentPeriod = () =>
   apiFetch<CapturePeriod>("/sessions/periods/current");
 
+// ─── Reference / dimension tables (Field Capture Guide §1) ────────────────────
+
+export type ReferenceKind =
+  | "zones"
+  | "lgas"
+  | "class-levels"
+  | "qualifications"
+  | "subjects"
+  | "media-categories";
+
+// A row from any dimension table (superset of fields; presence varies by kind).
+export interface ReferenceRow {
+  id: string;
+  code?: string;
+  name: string;
+  zoneId?: string | null;
+  educationLevel?: string | null;
+  sortOrder?: number;
+  rank?: number;
+  category?: string | null;
+  appliesToModule?: string | null;
+  mediaTypeAllowed?: string;
+  maxFilesAllowed?: number | null;
+  description?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// List a dimension. `all=true` includes inactive rows (admin management).
+export const listReference = (kind: ReferenceKind, all = false) =>
+  apiFetch<ReferenceRow[]>(`/reference/${kind}${all ? "?all=1" : ""}`);
+
+export const createReference = (
+  kind: ReferenceKind,
+  input: Partial<ReferenceRow>,
+) =>
+  apiFetch<ReferenceRow>(`/reference/${kind}`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const updateReference = (
+  kind: ReferenceKind,
+  id: string,
+  input: Partial<ReferenceRow>,
+) =>
+  apiFetch<ReferenceRow>(`/reference/${kind}/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+
 // School registry (admin) — full rows incl. inactive.
 export const SCHOOL_TYPE_OPTIONS = [
   { value: "PRIMARY", label: "Primary" },
@@ -958,6 +1054,7 @@ export interface SchoolInput {
   address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  dateEstablished?: number | null;
   isActive?: boolean;
 }
 

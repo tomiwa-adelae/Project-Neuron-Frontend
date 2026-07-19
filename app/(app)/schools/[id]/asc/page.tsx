@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useParams } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Form } from "@/components/ui/form";
 import {
   listAsc,
   createAsc,
@@ -20,22 +23,19 @@ import {
   deleteAsc,
   submitAsc,
   ApiError,
-  CLASS_LEVELS,
   type AscRecord,
   type AscInput,
   type RegisterList,
 } from "@/lib/api";
+import { AscSchema, type AscSchemaType } from "@/lib/schemas";
+import { useReferenceOptions } from "@/lib/use-reference";
 import { RegisterShell } from "../../../_components/register-shell";
-import { NumberField, SelectField, GenderField } from "../../../_components/form-fields";
+import { RHFNumber, RHFSelect } from "../../../_components/rhf-fields";
 
-const EMPTY: AscInput = {
-  classLevel: "",
-  gender: "MALE",
-  enrolmentCount: 0,
-  newEntrants: 0,
-  repeaters: 0,
-  dropoutCount: 0,
-};
+const GENDER_OPTIONS = [
+  { value: "MALE", label: "Male" },
+  { value: "FEMALE", label: "Female" },
+];
 
 export default function AscPage() {
   const { id } = useParams<{ id: string }>();
@@ -208,35 +208,30 @@ function AscDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState<AscInput>(
-    editing
-      ? {
-          classLevel: editing.classLevel,
-          gender: editing.gender,
-          enrolmentCount: editing.enrolmentCount,
-          newEntrants: editing.newEntrants,
-          repeaters: editing.repeaters,
-          dropoutCount: editing.dropoutCount,
-        }
-      : EMPTY,
-  );
-  const [saving, startSave] = useTransition();
-  const set = (p: Partial<AscInput>) => setForm((f) => ({ ...f, ...p }));
+  const form = useForm<AscSchemaType>({
+    resolver: zodResolver(AscSchema),
+    defaultValues: {
+      classLevel: editing?.classLevel ?? "",
+      gender: editing?.gender ?? "",
+      enrolmentCount: editing?.enrolmentCount ?? 0,
+      newEntrants: editing?.newEntrants ?? 0,
+      repeaters: editing?.repeaters ?? 0,
+      dropoutCount: editing?.dropoutCount ?? 0,
+    },
+  });
+  const submitting = form.formState.isSubmitting;
+  const { options: classLevels } = useReferenceOptions("class-levels");
 
-  const save = () => {
-    if (!form.classLevel) return toast.error("Select a class.");
-    if (form.newEntrants > form.enrolmentCount)
-      return toast.error("New entrants cannot exceed enrolment.");
-    startSave(async () => {
-      try {
-        if (editing) await updateAsc(schoolId, editing.id, form);
-        else await createAsc(schoolId, form);
-        toast.success(editing ? "Row updated." : "Row added.");
-        onSaved();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
-      }
-    });
+  const onSubmit = async (values: AscSchemaType) => {
+    try {
+      const payload = values as unknown as AscInput;
+      if (editing) await updateAsc(schoolId, editing.id, payload);
+      else await createAsc(schoolId, payload);
+      toast.success(editing ? "Row updated." : "Row added.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
+    }
   };
 
   return (
@@ -245,61 +240,31 @@ function AscDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "Edit class row" : "Add class row"}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <SelectField
-            label="Class"
-            required
-            options={CLASS_LEVELS}
-            value={form.classLevel}
-            onChange={(v) => set({ classLevel: v ?? "" })}
-          />
-          <GenderField
-            required
-            value={form.gender}
-            onChange={(v) => set({ gender: v })}
-          />
-          <NumberField
-            label="Enrolment count"
-            required
-            min={0}
-            value={form.enrolmentCount}
-            onChange={(v) => set({ enrolmentCount: v ?? 0 })}
-          />
-          <NumberField
-            label="New entrants"
-            required
-            min={0}
-            value={form.newEntrants}
-            onChange={(v) => set({ newEntrants: v ?? 0 })}
-          />
-          <NumberField
-            label="Repeaters"
-            required
-            min={0}
-            value={form.repeaters}
-            onChange={(v) => set({ repeaters: v ?? 0 })}
-          />
-          <NumberField
-            label="Dropouts"
-            required
-            min={0}
-            value={form.dropoutCount}
-            onChange={(v) => set({ dropoutCount: v ?? 0 })}
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            onClick={save}
-            disabled={saving}
-            className="bg-[#0b6b3a] text-white hover:bg-[#095a31]"
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            {editing ? "Save changes" : "Add row"}
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <RHFSelect control={form.control} name="classLevel" label="Class" required options={classLevels} />
+              <RHFSelect control={form.control} name="gender" label="Gender" required options={GENDER_OPTIONS} />
+              <RHFNumber control={form.control} name="enrolmentCount" label="Enrolment count" required min={0} />
+              <RHFNumber control={form.control} name="newEntrants" label="New entrants" required min={0} />
+              <RHFNumber control={form.control} name="repeaters" label="Repeaters" required min={0} />
+              <RHFNumber control={form.control} name="dropoutCount" label="Dropouts" required min={0} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={submitting}
+                className="bg-[#0b6b3a] text-white hover:bg-[#095a31]"
+              >
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                {editing ? "Save changes" : "Add row"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

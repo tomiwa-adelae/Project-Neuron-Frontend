@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowLeft,
+  BadgeCheck,
   ChevronRight,
   ClipboardList,
+  Crosshair,
   Loader2,
   MapPin,
   ShieldAlert,
@@ -19,10 +22,14 @@ import {
 import { cn } from "@/lib/utils";
 import {
   getSchool,
+  captureSchoolGps,
   ApiError,
   type SchoolDetail,
+  type SchoolMaster,
   type CaptureStatus,
 } from "@/lib/api";
+import { useAuth } from "../../_components/auth-provider";
+import { isCaptureRole, isPrincipal } from "@/lib/access";
 import { StatusBadge } from "../../_components/status-badge";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -130,15 +137,18 @@ export default function SchoolDetailPage() {
           <Detail label="Cluster" value={school.cluster ?? "—"} />
           <Detail label="Ward / community" value={school.ward ?? school.community ?? "—"} />
           <Detail
-            label="GPS"
-            value={
-              school.latitude != null && school.longitude != null
-                ? `${school.latitude.toFixed(4)}, ${school.longitude.toFixed(4)}`
-                : "Not captured"
-            }
+            label="Year established"
+            value={school.dateEstablished != null ? String(school.dateEstablished) : "—"}
           />
           <Detail label="Address" value={school.address ?? "—"} />
         </dl>
+
+        <GpsSection
+          school={school}
+          onCaptured={(gps) =>
+            setData((d) => (d ? { ...d, school: { ...d.school, ...gps } } : d))
+          }
+        />
       </div>
 
       {/* Risk summary (only once a security assessment is submitted) */}
@@ -222,6 +232,136 @@ export default function SchoolDetailPage() {
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+// Live GPS capture at the school gate (Field Capture Guide §1.4). Averages a few
+// browser Geolocation samples, keeping the tightest accuracy, then persists.
+function GpsSection({
+  school,
+  onCaptured,
+}: {
+  school: SchoolMaster;
+  onCaptured: (gps: Partial<SchoolMaster>) => void;
+}) {
+  const user = useAuth();
+  const canCapture = isCaptureRole(user.role) || isPrincipal(user.role);
+  const [capturing, setCapturing] = useState(false);
+
+  const hasGps = school.latitude != null && school.longitude != null;
+
+  const capture = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("This device has no location support.");
+      return;
+    }
+    setCapturing(true);
+    const samples: { lat: number; lng: number; acc: number }[] = [];
+    let best: { lat: number; lng: number; acc: number } | null = null;
+    let done = false; // guard so finish() runs once (early-stop OR timeout)
+
+    const finish = async () => {
+      if (done) return;
+      done = true;
+      navigator.geolocation.clearWatch(watchId);
+      clearTimeout(timer);
+      if (!best) {
+        setCapturing(false);
+        toast.error("Couldn't get a GPS fix. Move to an open area and retry.");
+        return;
+      }
+      // Average the samples close to the best accuracy for a stable coordinate.
+      const good = samples.filter((s) => s.acc <= best!.acc * 1.5);
+      const n = good.length || 1;
+      const avg = good.reduce(
+        (a, s) => ({ lat: a.lat + s.lat, lng: a.lng + s.lng }),
+        { lat: 0, lng: 0 },
+      );
+      try {
+        const res = await captureSchoolGps(school.id, {
+          latitude: avg.lat / n,
+          longitude: avg.lng / n,
+          accuracyMetres: best.acc,
+          sampleCount: samples.length,
+        });
+        onCaptured(res);
+        toast.success(`GPS captured (±${Math.round(best.acc)} m).`);
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Couldn't save GPS.");
+      } finally {
+        setCapturing(false);
+      }
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const s = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          acc: pos.coords.accuracy,
+        };
+        samples.push(s);
+        if (!best || s.acc < best.acc) best = s;
+        // Stop early once we have a tight fix.
+        if (best.acc <= 10 && samples.length >= 3) void finish();
+      },
+      () => {
+        if (done) return;
+        done = true;
+        navigator.geolocation.clearWatch(watchId);
+        clearTimeout(timer);
+        setCapturing(false);
+        toast.error("Location permission denied or unavailable.");
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
+    );
+    // Hard stop after ~8s regardless of accuracy.
+    const timer = setTimeout(() => void finish(), 8000);
+  };
+
+  return (
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <span className="flex size-9 items-center justify-center rounded-lg bg-[#0b6b3a]/10 text-[#0b6b3a]">
+          <MapPin className="size-4.5" />
+        </span>
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-medium text-neutral-900">
+            {hasGps
+              ? `${school.latitude!.toFixed(5)}, ${school.longitude!.toFixed(5)}`
+              : "GPS not captured"}
+            {school.gpsVerified && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-[#0b6b3a] ring-1 ring-inset ring-green-200">
+                <BadgeCheck className="size-3" /> Verified
+              </span>
+            )}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            {hasGps
+              ? `${
+                  school.gpsAccuracyMetres != null
+                    ? `±${Math.round(school.gpsAccuracyMetres)} m accuracy`
+                    : "Accuracy unknown"
+                }${school.gpsSampleCount ? ` · ${school.gpsSampleCount} samples` : ""}`
+              : "Stand at the school gate and capture the location."}
+          </p>
+        </div>
+      </div>
+      {canCapture && (
+        <button
+          onClick={capture}
+          disabled={capturing}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[#0b6b3a] px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-[#095a31] disabled:opacity-60"
+        >
+          {capturing ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Crosshair className="size-4" />
+          )}
+          {hasGps ? "Re-capture GPS" : "Capture GPS at gate"}
+        </button>
+      )}
     </div>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Ban,
   Copy,
@@ -31,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Form } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
 import {
   listUsers,
@@ -45,9 +48,15 @@ import {
   type ScopeInput,
   type StatusAction,
 } from "@/lib/api";
+import {
+  ProvisionUserSchema,
+  type ProvisionUserSchemaType,
+  ScopeSchema,
+  type ScopeSchemaType,
+} from "@/lib/schemas";
 import { useAuth } from "../../_components/auth-provider";
 import { RoleScopeFields, UserStatusBadge, roleLabel } from "../_components/admin-bits";
-import { TextField } from "../../_components/form-fields";
+import { RHFText } from "../../_components/rhf-fields";
 
 export default function UsersPage() {
   const me = useAuth();
@@ -298,35 +307,31 @@ function ProvisionDialog({
   onClose: () => void;
   onDone: (res: { user: AdminUser; tempPassword: string }) => void;
 }) {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [scope, setScope] = useState<ScopeInput>({ role: "LIE" });
-  const [saving, startSave] = useTransition();
+  const form = useForm<ProvisionUserSchemaType>({
+    resolver: zodResolver(ProvisionUserSchema),
+    defaultValues: {
+      firstName: "",
+      lastName: "",
+      email: "",
+      phoneNumber: "",
+      role: "LIE",
+      assignedLga: "",
+      assignedZone: "",
+      assignedCluster: "",
+      assignedSchoolId: "",
+    },
+  });
+  const submitting = form.formState.isSubmitting;
+  const role = form.watch("role");
 
-  const save = () => {
-    if (!firstName || !lastName || !email || !phoneNumber) {
-      return toast.error("Name, email and phone are required.");
+  const onSubmit = async (values: ProvisionUserSchemaType) => {
+    try {
+      const res = await provisionUser(values as ProvisionUserSchemaType & ScopeInput);
+      toast.success("Account provisioned.");
+      onDone(res);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't provision.");
     }
-    if (scope.role === "PRINCIPAL" && !scope.assignedSchoolId) {
-      return toast.error("Assign a school for a principal.");
-    }
-    startSave(async () => {
-      try {
-        const res = await provisionUser({
-          firstName,
-          lastName,
-          email,
-          phoneNumber,
-          ...scope,
-        });
-        toast.success("Account provisioned.");
-        onDone(res);
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't provision.");
-      }
-    });
   };
 
   return (
@@ -335,28 +340,32 @@ function ProvisionDialog({
         <DialogHeader>
           <DialogTitle>Provision a user</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="First name" required value={firstName} onChange={(v) => setFirstName(v ?? "")} />
-          <TextField label="Last name" required value={lastName} onChange={(v) => setLastName(v ?? "")} />
-          <TextField label="Email" required value={email} onChange={(v) => setEmail(v ?? "")} type="email" />
-          <TextField label="Phone number" required value={phoneNumber} onChange={(v) => setPhoneNumber(v ?? "")} />
-          <div className="sm:col-span-2 space-y-4">
-            <RoleScopeFields value={scope} onChange={setScope} />
-          </div>
-        </div>
-        <p className="rounded-md bg-neutral-50 px-3 py-2 text-xs text-neutral-500">
-          A temporary password is generated and emailed to the user; they&apos;ll
-          be required to change it at first login.
-        </p>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Create account
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <RHFText control={form.control} name="firstName" label="First name" required />
+              <RHFText control={form.control} name="lastName" label="Last name" required />
+              <RHFText control={form.control} name="email" label="Email" required type="email" />
+              <RHFText control={form.control} name="phoneNumber" label="Phone number" required />
+              <div className="sm:col-span-2 space-y-4">
+                <RoleScopeFields role={role} />
+              </div>
+            </div>
+            <p className="rounded-md bg-neutral-50 px-3 py-2 text-xs text-neutral-500">
+              A temporary password is generated and emailed to the user; they&apos;ll
+              be required to change it at first login.
+            </p>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                Create account
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
@@ -371,28 +380,27 @@ function EditRoleDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [scope, setScope] = useState<ScopeInput>({
-    role: user.role,
-    assignedLga: user.assignedLga,
-    assignedZone: user.assignedZone,
-    assignedCluster: user.assignedCluster,
-    assignedSchoolId: user.assignedSchoolId,
+  const form = useForm<ScopeSchemaType>({
+    resolver: zodResolver(ScopeSchema),
+    defaultValues: {
+      role: user.role,
+      assignedLga: user.assignedLga ?? "",
+      assignedZone: user.assignedZone ?? "",
+      assignedCluster: user.assignedCluster ?? "",
+      assignedSchoolId: user.assignedSchoolId ?? "",
+    },
   });
-  const [saving, startSave] = useTransition();
+  const submitting = form.formState.isSubmitting;
+  const role = form.watch("role");
 
-  const save = () => {
-    if (scope.role === "PRINCIPAL" && !scope.assignedSchoolId) {
-      return toast.error("Assign a school for a principal.");
+  const onSubmit = async (values: ScopeSchemaType) => {
+    try {
+      await updateUserRole(user.id, values as ScopeInput);
+      toast.success("Role updated.");
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't update.");
     }
-    startSave(async () => {
-      try {
-        await updateUserRole(user.id, scope);
-        toast.success("Role updated.");
-        onDone();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't update.");
-      }
-    });
   };
 
   return (
@@ -403,18 +411,20 @@ function EditRoleDialog({
             Edit {user.firstName} {user.lastName}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <RoleScopeFields value={scope} onChange={setScope} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save changes
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <RoleScopeFields role={role} />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                Save changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

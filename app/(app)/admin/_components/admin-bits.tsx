@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useFormContext } from "react-hook-form";
 import { cn } from "@/lib/utils";
 import {
   ROLE_OPTIONS,
   getPublicSchools,
-  type ScopeInput,
   type PublicSchool,
 } from "@/lib/api";
-import { TextField } from "../../_components/form-fields";
+import { RHFText, RHFSelect } from "../../_components/rhf-fields";
 
 export function roleLabel(role: string): string {
   return ROLE_OPTIONS.find((r) => r.value === role)?.label ?? role;
@@ -36,89 +36,45 @@ export function UserStatusBadge({ status }: { status: string }) {
   );
 }
 
-const FIELD =
-  "h-10 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3 text-sm text-neutral-900 focus-visible:border-[#0b6b3a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6b3a]/20";
-
-// Role selector + the one geographic scope field that matters for that role.
-export function RoleScopeFields({
-  value,
-  onChange,
-}: {
-  value: ScopeInput;
-  onChange: (v: ScopeInput) => void;
-}) {
-  const set = (p: Partial<ScopeInput>) => onChange({ ...value, ...p });
-
+// Role selector + the one scope field that matters for that role, driven by the
+// enclosing react-hook-form (via context). `role` is the caller's watched value.
+// Conditional-required scope is enforced by the schema's superRefine (ScopeSchema).
+export function RoleScopeFields({ role }: { role: string }) {
+  const { control } = useFormContext();
   // School directory for the PRINCIPAL binding. Loaded lazily on first use.
   const [schools, setSchools] = useState<PublicSchool[]>([]);
   useEffect(() => {
-    if (value.role !== "PRINCIPAL" || schools.length) return;
+    if (role !== "PRINCIPAL" || schools.length) return;
     getPublicSchools()
       .then((r) => setSchools(r.schools))
       .catch(() => {});
-  }, [value.role, schools.length]);
+  }, [role, schools.length]);
 
   return (
     <>
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-neutral-700">
-          Role <span className="text-red-500">*</span>
-        </label>
-        <select
-          value={value.role}
-          onChange={(e) => set({ role: e.target.value })}
-          className={FIELD}
-        >
-          {ROLE_OPTIONS.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <RHFSelect control={control} name="role" label="Role" required options={ROLE_OPTIONS} />
 
-      {value.role === "LIE" && (
-        <TextField
-          label="Assigned LGA"
-          value={value.assignedLga}
-          onChange={(v) => set({ assignedLga: v })}
-          placeholder="e.g. Ibadan North"
-        />
+      {role === "LIE" && (
+        <RHFText control={control} name="assignedLga" label="Assigned LGA" required placeholder="e.g. Ibadan North" />
       )}
-      {value.role === "ZONAL_COORD" && (
-        <TextField
-          label="Assigned zone"
-          value={value.assignedZone}
-          onChange={(v) => set({ assignedZone: v })}
-          placeholder="e.g. Ibadan Zone"
-        />
+      {role === "ZONAL_COORD" && (
+        <RHFText control={control} name="assignedZone" label="Assigned zone" placeholder="e.g. Ibadan Zone" />
       )}
-      {value.role === "INSPECT_OFFICER" && (
-        <TextField
-          label="Assigned cluster"
-          value={value.assignedCluster}
-          onChange={(v) => set({ assignedCluster: v })}
-          placeholder="School cluster"
-        />
+      {role === "INSPECT_OFFICER" && (
+        <RHFText control={control} name="assignedCluster" label="Assigned cluster" placeholder="School cluster" />
       )}
-      {value.role === "PRINCIPAL" && (
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium text-neutral-700">
-            Assigned school <span className="text-red-500">*</span>
-          </label>
-          <select
-            value={value.assignedSchoolId ?? ""}
-            onChange={(e) => set({ assignedSchoolId: e.target.value || null })}
-            className={FIELD}
-          >
-            <option value="">Select a school…</option>
-            {schools.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.code}) · {s.lgaName}
-              </option>
-            ))}
-          </select>
-        </div>
+      {role === "PRINCIPAL" && (
+        <RHFSelect
+          control={control}
+          name="assignedSchoolId"
+          label="Assigned school"
+          required
+          placeholder="Select a school…"
+          options={schools.map((s) => ({
+            value: s.id,
+            label: `${s.name} (${s.code}) · ${s.lgaName}`,
+          }))}
+        />
       )}
     </>
   );

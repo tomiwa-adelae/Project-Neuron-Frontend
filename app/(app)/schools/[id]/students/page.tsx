@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useParams } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Form } from "@/components/ui/form";
 import {
   listStudents,
   createStudent,
@@ -20,7 +23,6 @@ import {
   deleteStudent,
   submitStudents,
   ApiError,
-  CLASS_LEVELS,
   ENROLMENT_TYPES,
   TRANSPORT_MODES,
   EXIT_REASONS,
@@ -29,26 +31,21 @@ import {
   type StudentInput,
   type RegisterList,
 } from "@/lib/api";
+import { StudentSchema, type StudentSchemaType } from "@/lib/schemas";
+import { useReferenceOptions } from "@/lib/use-reference";
 import { RegisterShell } from "../../../_components/register-shell";
 import {
-  TextField,
-  NumberField,
-  SelectField,
-  DateField,
-  ToggleField,
-  GenderField,
-} from "../../../_components/form-fields";
+  RHFText,
+  RHFNumber,
+  RHFSelect,
+  RHFDate,
+  RHFSwitch,
+} from "../../../_components/rhf-fields";
 
-const EMPTY: StudentInput = {
-  studentCode: "",
-  classLevel: "",
-  firstName: "",
-  lastName: "",
-  gender: "MALE",
-  enrolmentType: "",
-  enrolmentDate: "",
-  disabilityStatus: false,
-};
+const GENDER_OPTIONS = [
+  { value: "MALE", label: "Male" },
+  { value: "FEMALE", label: "Female" },
+];
 
 export default function StudentsPage() {
   const { id } = useParams<{ id: string }>();
@@ -196,34 +193,44 @@ function StudentDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState<StudentInput>(
-    editing ? { ...(editing as StudentInput) } : EMPTY,
-  );
-  const [saving, startSave] = useTransition();
-  const set = (p: Partial<StudentInput>) => setForm((f) => ({ ...f, ...p }));
+  const form = useForm<StudentSchemaType>({
+    resolver: zodResolver(StudentSchema),
+    defaultValues: {
+      studentCode: editing?.studentCode ?? "",
+      classLevel: editing?.classLevel ?? "",
+      firstName: editing?.firstName ?? "",
+      middleName: editing?.middleName ?? "",
+      lastName: editing?.lastName ?? "",
+      dateOfBirth: editing?.dateOfBirth ?? "",
+      gender: editing?.gender ?? "",
+      stateOfOrigin: editing?.stateOfOrigin ?? "",
+      lgaOfOrigin: editing?.lgaOfOrigin ?? "",
+      disabilityStatus: editing?.disabilityStatus ?? false,
+      disabilityType: editing?.disabilityType ?? "",
+      enrolmentType: editing?.enrolmentType ?? "",
+      distanceToSchoolKm: editing?.distanceToSchoolKm ?? undefined,
+      transportMode: editing?.transportMode ?? "",
+      guardianName: editing?.guardianName ?? "",
+      guardianPhone: editing?.guardianPhone ?? "",
+      enrolmentDate: editing?.enrolmentDate ?? "",
+      exitDate: editing?.exitDate ?? "",
+      exitReason: editing?.exitReason ?? "",
+    },
+  });
+  const submitting = form.formState.isSubmitting;
+  const hasDisability = form.watch("disabilityStatus");
+  const { options: classLevels } = useReferenceOptions("class-levels");
 
-  const save = () => {
-    const required: [keyof StudentInput, string][] = [
-      ["studentCode", "Student ID"],
-      ["classLevel", "Class"],
-      ["firstName", "First name"],
-      ["lastName", "Surname"],
-      ["enrolmentType", "Enrolment type"],
-      ["enrolmentDate", "Enrolment date"],
-    ];
-    for (const [k, label] of required) {
-      if (!form[k]) return toast.error(`${label} is required.`);
+  const onSubmit = async (values: StudentSchemaType) => {
+    try {
+      const payload = values as unknown as StudentInput;
+      if (editing) await updateStudent(schoolId, editing.id, payload);
+      else await createStudent(schoolId, payload);
+      toast.success(editing ? "Student updated." : "Student added.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
     }
-    startSave(async () => {
-      try {
-        if (editing) await updateStudent(schoolId, editing.id, form);
-        else await createStudent(schoolId, form);
-        toast.success(editing ? "Student updated." : "Student added.");
-        onSaved();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
-      }
-    });
   };
 
   return (
@@ -232,44 +239,48 @@ function StudentDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "Edit student" : "Add student"}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="Student ID" required value={form.studentCode} onChange={(v) => set({ studentCode: v ?? "" })} />
-          <SelectField label="Class" required options={CLASS_LEVELS} value={form.classLevel} onChange={(v) => set({ classLevel: v ?? "" })} />
-          <TextField label="First name" required value={form.firstName} onChange={(v) => set({ firstName: v ?? "" })} />
-          <TextField label="Middle name" value={form.middleName} onChange={(v) => set({ middleName: v })} />
-          <TextField label="Surname" required value={form.lastName} onChange={(v) => set({ lastName: v ?? "" })} />
-          <GenderField required value={form.gender} onChange={(v) => set({ gender: v })} />
-          <DateField label="Date of birth" value={form.dateOfBirth} onChange={(v) => set({ dateOfBirth: v })} />
-          <SelectField label="Enrolment type" required options={ENROLMENT_TYPES} value={form.enrolmentType} onChange={(v) => set({ enrolmentType: v ?? "" })} />
-          <DateField label="Enrolment date" required value={form.enrolmentDate} onChange={(v) => set({ enrolmentDate: v ?? "" })} />
-          <SelectField label="State of origin" options={NIGERIAN_STATES} value={form.stateOfOrigin} onChange={(v) => set({ stateOfOrigin: v })} />
-          <TextField label="LGA of origin" value={form.lgaOfOrigin} onChange={(v) => set({ lgaOfOrigin: v })} />
-          <NumberField label="Distance to school" unit="km" min={0} value={form.distanceToSchoolKm} onChange={(v) => set({ distanceToSchoolKm: v })} />
-          <SelectField label="Transport mode" options={TRANSPORT_MODES} value={form.transportMode} onChange={(v) => set({ transportMode: v })} />
-          <TextField label="Guardian name" value={form.guardianName} onChange={(v) => set({ guardianName: v })} />
-          <TextField label="Guardian phone" value={form.guardianPhone} onChange={(v) => set({ guardianPhone: v })} />
-          <div className="sm:col-span-2">
-            <ToggleField
-              label="Does this student have a disability?"
-              value={form.disabilityStatus}
-              onChange={(v) => set({ disabilityStatus: v, disabilityType: v ? form.disabilityType : null })}
-            />
-          </div>
-          {form.disabilityStatus && (
-            <TextField label="Disability type" value={form.disabilityType} onChange={(v) => set({ disabilityType: v })} />
-          )}
-          <DateField label="Exit date (if left)" value={form.exitDate} onChange={(v) => set({ exitDate: v })} />
-          <SelectField label="Exit reason" options={EXIT_REASONS} value={form.exitReason} onChange={(v) => set({ exitReason: v })} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            {editing ? "Save changes" : "Add student"}
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <RHFText control={form.control} name="studentCode" label="Student ID" required />
+              <RHFSelect control={form.control} name="classLevel" label="Class" required options={classLevels} />
+              <RHFText control={form.control} name="firstName" label="First name" required />
+              <RHFText control={form.control} name="middleName" label="Middle name" />
+              <RHFText control={form.control} name="lastName" label="Surname" required />
+              <RHFSelect control={form.control} name="gender" label="Gender" required options={GENDER_OPTIONS} />
+              <RHFDate control={form.control} name="dateOfBirth" label="Date of birth" />
+              <RHFSelect control={form.control} name="enrolmentType" label="Enrolment type" required options={ENROLMENT_TYPES} />
+              <RHFDate control={form.control} name="enrolmentDate" label="Enrolment date" required />
+              <RHFSelect control={form.control} name="stateOfOrigin" label="State of origin" options={NIGERIAN_STATES} />
+              <RHFText control={form.control} name="lgaOfOrigin" label="LGA of origin" />
+              <RHFNumber control={form.control} name="distanceToSchoolKm" label="Distance to school" unit="km" min={0} />
+              <RHFSelect control={form.control} name="transportMode" label="Transport mode" options={TRANSPORT_MODES} />
+              <RHFText control={form.control} name="guardianName" label="Guardian name" />
+              <RHFText control={form.control} name="guardianPhone" label="Guardian phone" />
+              <div className="sm:col-span-2">
+                <RHFSwitch
+                  control={form.control}
+                  name="disabilityStatus"
+                  label="Does this student have a disability?"
+                />
+              </div>
+              {hasDisability && (
+                <RHFText control={form.control} name="disabilityType" label="Disability type" />
+              )}
+              <RHFDate control={form.control} name="exitDate" label="Exit date (if left)" />
+              <RHFSelect control={form.control} name="exitReason" label="Exit reason" options={EXIT_REASONS} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                {editing ? "Save changes" : "Add student"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

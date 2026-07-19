@@ -17,6 +17,13 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RegisterSchema, type RegisterSchemaType } from "@/lib/zodSchema";
 import {
   register as registerUser,
@@ -24,8 +31,6 @@ import {
   ApiError,
   type PublicSchool,
 } from "@/lib/api";
-
-type AccountType = "LIE" | "PRINCIPAL";
 
 const FIELD =
   "h-11 rounded-md border-neutral-200 bg-neutral-50 text-sm text-neutral-900 placeholder:text-neutral-400 focus-visible:border-[#0b6b3a] focus-visible:ring-2 focus-visible:ring-[#0b6b3a]/20";
@@ -35,20 +40,7 @@ export function RegisterForm() {
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-
-  // Account type is managed outside the zod form: a default field inspector (LIE)
-  // or a school principal, who must also pick their school.
-  const [accountType, setAccountType] = useState<AccountType>("LIE");
-  const [schoolId, setSchoolId] = useState("");
   const [schools, setSchools] = useState<PublicSchool[]>([]);
-  const isPrincipal = accountType === "PRINCIPAL";
-
-  useEffect(() => {
-    if (!isPrincipal || schools.length) return;
-    getPublicSchools()
-      .then((r) => setSchools(r.schools))
-      .catch(() => toast.error("Couldn't load the list of schools."));
-  }, [isPrincipal, schools.length]);
 
   const form = useForm<RegisterSchemaType>({
     resolver: zodResolver(RegisterSchema),
@@ -59,20 +51,36 @@ export function RegisterForm() {
       phoneNumber: "",
       password: "",
       confirmPassword: "",
+      role: "LIE",
+      requestedSchoolId: "",
     },
   });
 
+  const role = form.watch("role");
+  const isPrincipal = role === "PRINCIPAL";
+
+  useEffect(() => {
+    if (!isPrincipal || schools.length) return;
+    getPublicSchools()
+      .then((r) => setSchools(r.schools))
+      .catch(() => toast.error("Couldn't load the list of schools."));
+  }, [isPrincipal, schools.length]);
+
   const onSubmit = (values: RegisterSchemaType) => {
-    if (isPrincipal && !schoolId) {
-      toast.error("Select the school you are the principal of.");
-      return;
-    }
     startTransition(async () => {
       try {
+        const base = {
+          firstName: values.firstName,
+          lastName: values.lastName,
+          email: values.email,
+          phoneNumber: values.phoneNumber,
+          password: values.password,
+          confirmPassword: values.confirmPassword,
+        };
         await registerUser(
-          isPrincipal
-            ? { ...values, role: "PRINCIPAL", requestedSchoolId: schoolId }
-            : values,
+          values.role === "PRINCIPAL"
+            ? { ...base, role: "PRINCIPAL", requestedSchoolId: values.requestedSchoolId }
+            : base,
         );
         toast.success("Registration submitted.");
         setSubmitted(true);
@@ -120,16 +128,18 @@ export function RegisterForm() {
               [
                 ["LIE", "Field inspector"],
                 ["PRINCIPAL", "School principal"],
-              ] as [AccountType, string][]
+              ] as ["LIE" | "PRINCIPAL", string][]
             ).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
-                onClick={() => setAccountType(value)}
-                aria-pressed={accountType === value}
+                onClick={() =>
+                  form.setValue("role", value, { shouldValidate: true })
+                }
+                aria-pressed={role === value}
                 className={
                   "h-11 rounded-md border px-3 text-sm font-medium transition-colors " +
-                  (accountType === value
+                  (role === value
                     ? "border-[#0b6b3a] bg-[#0b6b3a]/5 text-[#0b6b3a]"
                     : "border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100")
                 }
@@ -142,27 +152,36 @@ export function RegisterForm() {
 
         {/* School picker — principals only */}
         {isPrincipal && (
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-neutral-700">
-              Your school <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={schoolId}
-              onChange={(e) => setSchoolId(e.target.value)}
-              className={`${FIELD} w-full px-3`}
-            >
-              <option value="">Select your school…</option>
-              {schools.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.code}) · {s.lgaName}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-neutral-500">
-              An administrator will confirm your school before your account is
-              activated.
-            </p>
-          </div>
+          <FormField
+            control={form.control}
+            name="requestedSchoolId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-neutral-700">
+                  Your school <span className="text-red-500">*</span>
+                </FormLabel>
+                <Select value={field.value ?? ""} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className={`${FIELD} w-full`}>
+                      <SelectValue placeholder="Select your school…" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {schools.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name} ({s.code}) · {s.lgaName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-neutral-500">
+                  An administrator will confirm your school before your account is
+                  activated.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

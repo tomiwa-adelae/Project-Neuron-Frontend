@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useParams } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ImagePlus,
   Loader2,
@@ -21,7 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Form } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
 import {
   listMedia,
@@ -30,14 +32,16 @@ import {
   deleteMedia,
   submitMedia,
   ApiError,
-  MEDIA_CATEGORIES,
   type SchoolMedia,
   type RegisterList,
 } from "@/lib/api";
+import { MediaMetaSchema, type MediaMetaSchemaType } from "@/lib/schemas";
+import { useReferenceOptions } from "@/lib/use-reference";
 import { RegisterShell } from "../../../_components/register-shell";
-import { SelectField, ToggleField } from "../../../_components/form-fields";
+import { RHFSelect, RHFTextarea, RHFSwitch } from "../../../_components/rhf-fields";
 
 const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 export default function MediaPage() {
   const { id } = useParams<{ id: string }>();
@@ -122,17 +126,43 @@ export default function MediaPage() {
                 className="group overflow-hidden rounded-xl border border-neutral-200 bg-white"
               >
                 <div className="relative aspect-[4/3] bg-neutral-100">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={m.fileUrl}
-                    alt={m.caption}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
+                  {m.mediaType === "video" ? (
+                    <video
+                      src={m.fileUrl}
+                      controls
+                      preload="metadata"
+                      className="h-full w-full bg-black object-contain"
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={m.fileUrl}
+                      alt={m.caption}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  )}
                   {m.isPrimary && (
                     <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-[#caa44a] px-1.5 py-0.5 text-[0.65rem] font-bold text-[#3a2c05]">
                       <Star className="size-3 fill-[#3a2c05]" />
                       Primary
+                    </span>
+                  )}
+                  {m.isFlagged && (
+                    <span
+                      className="absolute left-2 bottom-2 inline-flex items-center rounded bg-red-600 px-1.5 py-0.5 text-[0.65rem] font-semibold text-white"
+                      title={m.flagReason ?? "Flagged for review"}
+                    >
+                      Flagged
+                    </span>
+                  )}
+                  {m.mediaType === "video" && (
+                    <span className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[0.65rem] font-semibold text-white">
+                      {m.videoDurationSecs != null
+                        ? `${Math.floor(m.videoDurationSecs / 60)}:${String(
+                            m.videoDurationSecs % 60,
+                          ).padStart(2, "0")}`
+                        : "Video"}
                     </span>
                   )}
                   <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-black/50 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
@@ -204,123 +234,125 @@ function UploadDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [category, setCategory] = useState<string>("General");
-  const [caption, setCaption] = useState("");
-  const [isPrimary, setIsPrimary] = useState(false);
-  const [saving, startSave] = useTransition();
+
+  const form = useForm<MediaMetaSchemaType>({
+    resolver: zodResolver(MediaMetaSchema),
+    defaultValues: { category: "General", caption: "", isPrimary: false },
+  });
+  const submitting = form.formState.isSubmitting;
+  const { options: categories } = useReferenceOptions("media-categories");
+
+  const isVideo = !!file && file.type.startsWith("video/");
 
   const pick = (f: File | null) => {
     if (!f) return;
-    if (!f.type.startsWith("image/")) {
-      toast.error("Only images are allowed (no video).");
+    const image = f.type.startsWith("image/");
+    const video = f.type.startsWith("video/");
+    if (!image && !video) {
+      toast.error("Only images or video are allowed.");
       return;
     }
-    if (f.size > MAX_BYTES) {
-      toast.error("Image must be 10 MB or smaller.");
+    const cap = video ? MAX_VIDEO_BYTES : MAX_BYTES;
+    if (f.size > cap) {
+      toast.error(`File must be ${video ? "100" : "10"} MB or smaller.`);
       return;
     }
     setFile(f);
     setPreview(URL.createObjectURL(f));
   };
 
-  const save = () => {
-    if (!file) return toast.error("Choose an image first.");
-    if (!caption.trim()) return toast.error("A caption is required.");
-    startSave(async () => {
-      try {
-        await uploadMedia(schoolId, { file, category, caption, isPrimary });
-        toast.success("Image uploaded.");
-        onSaved();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Upload failed.");
-      }
-    });
+  const onSubmit = async (values: MediaMetaSchemaType) => {
+    if (!file) {
+      toast.error("Choose an image or video first.");
+      return;
+    }
+    try {
+      await uploadMedia(schoolId, {
+        file,
+        category: values.category,
+        caption: values.caption,
+        isPrimary: values.isPrimary ?? false,
+      });
+      toast.success(isVideo ? "Video uploaded." : "Image uploaded.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Upload failed.");
+    }
   };
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Upload image</DialogTitle>
+          <DialogTitle>Upload media</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => pick(e.target.files?.[0] ?? null)}
-          />
-
-          {preview ? (
-            <div className="relative overflow-hidden rounded-lg border border-neutral-200">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={preview} alt="Preview" className="max-h-64 w-full object-contain bg-neutral-50" />
-              <button
-                onClick={() => {
-                  setFile(null);
-                  setPreview(null);
-                  if (inputRef.current) inputRef.current.value = "";
-                }}
-                className="absolute right-2 top-2 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
-                aria-label="Remove"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => inputRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-neutral-300 bg-neutral-50 py-10 text-sm text-neutral-500 hover:border-[#0b6b3a]/40 hover:text-neutral-700"
-            >
-              <Upload className="size-6" />
-              Tap to choose an image
-              <span className="text-xs text-neutral-400">JPEG, PNG, WebP · max 10 MB</span>
-            </button>
-          )}
-
-          <SelectField
-            label="Category"
-            required
-            options={MEDIA_CATEGORIES}
-            value={category}
-            onChange={(v) => setCategory(v ?? "General")}
-          />
-
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-neutral-700">
-              Caption <span className="text-red-500">*</span>
-            </label>
-            <Textarea
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              placeholder="Describe clearly what this image shows."
-              rows={3}
-              className="text-sm"
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*,video/*"
+              className="hidden"
+              onChange={(e) => pick(e.target.files?.[0] ?? null)}
             />
-          </div>
 
-          <ToggleField
-            label="Set as the school's primary photo?"
-            value={isPrimary}
-            onChange={setIsPrimary}
-          />
-        </div>
+            {preview ? (
+              <div className="relative overflow-hidden rounded-lg border border-neutral-200">
+                {isVideo ? (
+                  <video src={preview} controls className="max-h-64 w-full bg-black object-contain" />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={preview} alt="Preview" className="max-h-64 w-full object-contain bg-neutral-50" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFile(null);
+                    setPreview(null);
+                    if (inputRef.current) inputRef.current.value = "";
+                  }}
+                  className="absolute right-2 top-2 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                  aria-label="Remove"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-neutral-300 bg-neutral-50 py-10 text-sm text-neutral-500 hover:border-[#0b6b3a]/40 hover:text-neutral-700"
+              >
+                <Upload className="size-6" />
+                Tap to choose an image or video
+                <span className="text-xs text-neutral-400">
+                  Image (JPEG/PNG/WebP · 10 MB) or video (MP4/WebM/MOV · 100 MB)
+                </span>
+              </button>
+            )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            onClick={save}
-            disabled={saving}
-            className="bg-[#0b6b3a] text-white hover:bg-[#095a31]"
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Upload
-          </Button>
-        </DialogFooter>
+            <RHFSelect control={form.control} name="category" label="Category" required options={categories} />
+            <RHFTextarea
+              control={form.control}
+              name="caption"
+              label="Caption"
+              required
+              placeholder="Describe clearly what this image shows."
+            />
+            <RHFSwitch control={form.control} name="isPrimary" label="Set as the school's primary photo?" />
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                Upload
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
@@ -337,22 +369,29 @@ function EditDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [category, setCategory] = useState(media.category);
-  const [caption, setCaption] = useState(media.caption);
-  const [isPrimary, setIsPrimary] = useState(media.isPrimary);
-  const [saving, startSave] = useTransition();
+  const form = useForm<MediaMetaSchemaType>({
+    resolver: zodResolver(MediaMetaSchema),
+    defaultValues: {
+      category: media.category,
+      caption: media.caption,
+      isPrimary: media.isPrimary,
+    },
+  });
+  const submitting = form.formState.isSubmitting;
+  const { options: categories } = useReferenceOptions("media-categories");
 
-  const save = () => {
-    if (!caption.trim()) return toast.error("A caption is required.");
-    startSave(async () => {
-      try {
-        await updateMedia(schoolId, media.id, { category, caption, isPrimary });
-        toast.success("Image updated.");
-        onSaved();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't update.");
-      }
-    });
+  const onSubmit = async (values: MediaMetaSchemaType) => {
+    try {
+      await updateMedia(schoolId, media.id, {
+        category: values.category,
+        caption: values.caption,
+        isPrimary: values.isPrimary ?? false,
+      });
+      toast.success("Image updated.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't update.");
+    }
   };
 
   return (
@@ -361,46 +400,26 @@ function EditDialog({
         <DialogHeader>
           <DialogTitle>Edit image</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="overflow-hidden rounded-lg border border-neutral-200">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={media.fileUrl} alt={media.caption} className="max-h-56 w-full object-contain bg-neutral-50" />
-          </div>
-          <SelectField
-            label="Category"
-            required
-            options={MEDIA_CATEGORIES}
-            value={category}
-            onChange={(v) => setCategory(v ?? "General")}
-          />
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-neutral-700">Caption</label>
-            <Textarea
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              rows={3}
-              className="text-sm"
-            />
-          </div>
-          <ToggleField
-            label="Set as the school's primary photo?"
-            value={isPrimary}
-            onChange={setIsPrimary}
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            onClick={save}
-            disabled={saving}
-            className="bg-[#0b6b3a] text-white hover:bg-[#095a31]"
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save changes
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="overflow-hidden rounded-lg border border-neutral-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={media.fileUrl} alt={media.caption} className="max-h-56 w-full object-contain bg-neutral-50" />
+            </div>
+            <RHFSelect control={form.control} name="category" label="Category" required options={categories} />
+            <RHFTextarea control={form.control} name="caption" label="Caption" required />
+            <RHFSwitch control={form.control} name="isPrimary" label="Set as the school's primary photo?" />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                Save changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

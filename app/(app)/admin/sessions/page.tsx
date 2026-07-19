@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   CalendarDays,
   CheckCircle2,
@@ -20,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Form } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
 import {
   listSessions,
@@ -34,7 +37,13 @@ import {
   type SessionRecord,
   type CapturePeriod,
 } from "@/lib/api";
-import { TextField, DateField, ToggleField } from "../../_components/form-fields";
+import {
+  SessionSchema,
+  type SessionSchemaType,
+  PeriodSchema,
+  type PeriodSchemaType,
+} from "@/lib/schemas";
+import { RHFText, RHFDate, RHFNumber, RHFSwitch } from "../../_components/rhf-fields";
 
 export default function SessionsPage() {
   const [rows, setRows] = useState<SessionRecord[]>([]);
@@ -354,59 +363,54 @@ function PeriodForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState(editing?.name ?? "");
-  const [sequence, setSequence] = useState(String(editing?.sequence ?? ""));
-  const [startDate, setStartDate] = useState<string | null>(editing?.startDate ?? null);
-  const [endDate, setEndDate] = useState<string | null>(editing?.endDate ?? null);
-  const [saving, startSave] = useTransition();
+  const form = useForm<PeriodSchemaType>({
+    resolver: zodResolver(PeriodSchema),
+    defaultValues: {
+      name: editing?.name ?? "",
+      sequence: editing?.sequence ?? undefined,
+      startDate: editing?.startDate ?? "",
+      endDate: editing?.endDate ?? "",
+    },
+  });
+  const submitting = form.formState.isSubmitting;
 
-  const save = () => {
-    if (!name.trim()) return toast.error("Period name is required.");
-    const seq = sequence.trim() ? Number(sequence) : undefined;
-    startSave(async () => {
-      try {
-        if (editing) {
-          await updatePeriod(editing.id, { name, sequence: seq, startDate, endDate });
-        } else {
-          await createPeriod(sessionId, { name, sequence: seq, startDate, endDate });
-        }
-        toast.success(editing ? "Period updated." : "Period added.");
-        onSaved();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't save period.");
-      }
-    });
+  const onSubmit = async (values: PeriodSchemaType) => {
+    const body = {
+      name: values.name,
+      sequence: values.sequence,
+      startDate: values.startDate || null,
+      endDate: values.endDate || null,
+    };
+    try {
+      if (editing) await updatePeriod(editing.id, body);
+      else await createPeriod(sessionId, body);
+      toast.success(editing ? "Period updated." : "Period added.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't save period.");
+    }
   };
 
   return (
-    <div className="space-y-4">
-      <TextField
-        label="Period name"
-        required
-        value={name}
-        onChange={(v) => setName(v ?? "")}
-        placeholder="e.g. Term 1"
-      />
-      <TextField
-        label="Order (round number)"
-        value={sequence}
-        onChange={(v) => setSequence(v ?? "")}
-        placeholder="e.g. 1"
-      />
-      <div className="grid grid-cols-2 gap-4">
-        <DateField label="Start date" value={startDate} onChange={setStartDate} />
-        <DateField label="End date" value={endDate} onChange={setEndDate} />
-      </div>
-      <DialogFooter>
-        <Button variant="outline" onClick={onCancel} disabled={saving}>
-          Cancel
-        </Button>
-        <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
-          {saving && <Loader2 className="size-4 animate-spin" />}
-          {editing ? "Save period" : "Add period"}
-        </Button>
-      </DialogFooter>
-    </div>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <RHFText control={form.control} name="name" label="Period name" required placeholder="e.g. Term 1" />
+        <RHFNumber control={form.control} name="sequence" label="Order (round number)" min={1} placeholder="e.g. 1" />
+        <div className="grid grid-cols-2 gap-4">
+          <RHFDate control={form.control} name="startDate" label="Start date" />
+          <RHFDate control={form.control} name="endDate" label="End date" />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+            {submitting && <Loader2 className="size-4 animate-spin" />}
+            {editing ? "Save period" : "Add period"}
+          </Button>
+        </DialogFooter>
+      </form>
+    </Form>
   );
 }
 
@@ -419,27 +423,38 @@ function SessionDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState(editing?.name ?? "");
-  const [startDate, setStartDate] = useState<string | null>(editing?.startDate ?? null);
-  const [endDate, setEndDate] = useState<string | null>(editing?.endDate ?? null);
-  const [isCurrent, setIsCurrent] = useState(editing?.isCurrent ?? false);
-  const [saving, startSave] = useTransition();
+  const form = useForm<SessionSchemaType>({
+    resolver: zodResolver(SessionSchema),
+    defaultValues: {
+      name: editing?.name ?? "",
+      startDate: editing?.startDate ?? "",
+      endDate: editing?.endDate ?? "",
+      isCurrent: editing?.isCurrent ?? false,
+    },
+  });
+  const submitting = form.formState.isSubmitting;
 
-  const save = () => {
-    if (!name.trim()) return toast.error("Session name is required.");
-    startSave(async () => {
-      try {
-        if (editing) {
-          await updateSession(editing.id, { name, startDate, endDate });
-        } else {
-          await createSession({ name, startDate, endDate, isCurrent });
-        }
-        toast.success(editing ? "Session updated." : "Session created.");
-        onSaved();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
+  const onSubmit = async (values: SessionSchemaType) => {
+    try {
+      if (editing) {
+        await updateSession(editing.id, {
+          name: values.name,
+          startDate: values.startDate || null,
+          endDate: values.endDate || null,
+        });
+      } else {
+        await createSession({
+          name: values.name,
+          startDate: values.startDate || null,
+          endDate: values.endDate || null,
+          isCurrent: values.isCurrent,
+        });
       }
-    });
+      toast.success(editing ? "Session updated." : "Session created.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
+    }
   };
 
   return (
@@ -448,35 +463,27 @@ function SessionDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "Edit session" : "New session"}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <TextField
-            label="Session name"
-            required
-            value={name}
-            onChange={(v) => setName(v ?? "")}
-            placeholder="e.g. 2025/2026"
-          />
-          <div className="grid grid-cols-2 gap-4">
-            <DateField label="Start date" value={startDate} onChange={setStartDate} />
-            <DateField label="End date" value={endDate} onChange={setEndDate} />
-          </div>
-          {!editing && (
-            <ToggleField
-              label="Make this the current session?"
-              value={isCurrent}
-              onChange={setIsCurrent}
-            />
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            {editing ? "Save changes" : "Create session"}
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <RHFText control={form.control} name="name" label="Session name" required placeholder="e.g. 2025/2026" />
+            <div className="grid grid-cols-2 gap-4">
+              <RHFDate control={form.control} name="startDate" label="Start date" />
+              <RHFDate control={form.control} name="endDate" label="End date" />
+            </div>
+            {!editing && (
+              <RHFSwitch control={form.control} name="isCurrent" label="Make this the current session?" />
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                {editing ? "Save changes" : "Create session"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

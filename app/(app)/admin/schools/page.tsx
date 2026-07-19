@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Loader2,
   Pencil,
@@ -21,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Form } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
 import {
   listRegistrySchools,
@@ -36,21 +39,13 @@ import {
   type SchoolMaster,
   type SchoolInput,
 } from "@/lib/api";
-import { TextField, NumberField, SelectField } from "../../_components/form-fields";
+import { SchoolSchema, type SchoolSchemaType } from "@/lib/schemas";
+import { useReferenceOptions } from "@/lib/use-reference";
+import { RHFText, RHFNumber, RHFSelect } from "../../_components/rhf-fields";
 
 const TYPE_LABEL = Object.fromEntries(
   SCHOOL_TYPE_OPTIONS.map((o) => [o.value, o.label]),
 );
-
-const EMPTY: SchoolInput = {
-  code: "",
-  name: "",
-  type: "PRIMARY",
-  ownership: "PUBLIC",
-  category: "DAY",
-  genderCategory: "MIXED",
-  lgaName: "",
-};
 
 export default function SchoolRegistryPage() {
   const [rows, setRows] = useState<SchoolMaster[]>([]);
@@ -235,44 +230,40 @@ function SchoolDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState<SchoolInput>(
-    editing
-      ? {
-          code: editing.code,
-          name: editing.name,
-          type: editing.type,
-          ownership: editing.ownership,
-          category: editing.category,
-          genderCategory: editing.genderCategory,
-          lgaName: editing.lgaName,
-          lgaCode: editing.lgaCode,
-          zoneName: editing.zoneName,
-          cluster: editing.cluster,
-          ward: editing.ward,
-          community: editing.community,
-          address: editing.address,
-          latitude: editing.latitude,
-          longitude: editing.longitude,
-        }
-      : EMPTY,
-  );
-  const [saving, startSave] = useTransition();
-  const set = (p: Partial<SchoolInput>) => setForm((f) => ({ ...f, ...p }));
+  const form = useForm<SchoolSchemaType>({
+    resolver: zodResolver(SchoolSchema),
+    defaultValues: {
+      code: editing?.code ?? "",
+      name: editing?.name ?? "",
+      type: editing?.type ?? "PRIMARY",
+      ownership: editing?.ownership ?? "PUBLIC",
+      category: editing?.category ?? "DAY",
+      genderCategory: editing?.genderCategory ?? "MIXED",
+      lgaName: editing?.lgaName ?? "",
+      lgaCode: editing?.lgaCode ?? "",
+      zoneName: editing?.zoneName ?? "",
+      cluster: editing?.cluster ?? "",
+      ward: editing?.ward ?? "",
+      community: editing?.community ?? "",
+      address: editing?.address ?? "",
+      latitude: editing?.latitude ?? undefined,
+      longitude: editing?.longitude ?? undefined,
+      dateEstablished: editing?.dateEstablished ?? undefined,
+    },
+  });
+  const submitting = form.formState.isSubmitting;
+  const { options: lgaOptions } = useReferenceOptions("lgas");
 
-  const save = () => {
-    if (!form.code.trim() || !form.name.trim() || !form.lgaName.trim()) {
-      return toast.error("Code, name and LGA are required.");
+  const onSubmit = async (values: SchoolSchemaType) => {
+    try {
+      const payload = values as unknown as SchoolInput;
+      if (editing) await updateSchool(editing.id, payload);
+      else await createSchool(payload);
+      toast.success(editing ? "School updated." : "School added.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
     }
-    startSave(async () => {
-      try {
-        if (editing) await updateSchool(editing.id, form);
-        else await createSchool(form);
-        toast.success(editing ? "School updated." : "School added.");
-        onSaved();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
-      }
-    });
   };
 
   return (
@@ -281,43 +272,37 @@ function SchoolDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "Edit school" : "Add school"}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="School code" required value={form.code} onChange={(v) => set({ code: v ?? "" })} />
-          <TextField label="Name" required value={form.name} onChange={(v) => set({ name: v ?? "" })} />
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-neutral-700">Level</label>
-            <select
-              value={form.type}
-              onChange={(e) => set({ type: e.target.value })}
-              className="h-10 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6b3a]/20"
-            >
-              {SCHOOL_TYPE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-          <SelectField label="Ownership" options={OWNERSHIP_OPTIONS} value={form.ownership} onChange={(v) => set({ ownership: v ?? "PUBLIC" })} />
-          <SelectField label="Boarding" options={CATEGORY_OPTIONS} value={form.category} onChange={(v) => set({ category: v ?? "DAY" })} />
-          <SelectField label="Students served" options={GENDER_CATEGORY_OPTIONS} value={form.genderCategory} onChange={(v) => set({ genderCategory: v ?? "MIXED" })} />
-          <TextField label="LGA" required value={form.lgaName} onChange={(v) => set({ lgaName: v ?? "" })} />
-          <TextField label="LGA code" value={form.lgaCode} onChange={(v) => set({ lgaCode: v })} />
-          <TextField label="Zone" value={form.zoneName} onChange={(v) => set({ zoneName: v })} />
-          <TextField label="Inspectorate cluster" value={form.cluster} onChange={(v) => set({ cluster: v })} />
-          <TextField label="Ward" value={form.ward} onChange={(v) => set({ ward: v })} />
-          <TextField label="Community" value={form.community} onChange={(v) => set({ community: v })} />
-          <TextField label="Address" value={form.address} onChange={(v) => set({ address: v })} />
-          <NumberField label="Latitude" value={form.latitude} onChange={(v) => set({ latitude: v })} />
-          <NumberField label="Longitude" value={form.longitude} onChange={(v) => set({ longitude: v })} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            {editing ? "Save changes" : "Add school"}
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <RHFText control={form.control} name="code" label="School code" required />
+              <RHFText control={form.control} name="name" label="Name" required />
+              <RHFSelect control={form.control} name="type" label="Level" required options={SCHOOL_TYPE_OPTIONS} />
+              <RHFSelect control={form.control} name="ownership" label="Ownership" required options={OWNERSHIP_OPTIONS} />
+              <RHFSelect control={form.control} name="category" label="Boarding" required options={CATEGORY_OPTIONS} />
+              <RHFSelect control={form.control} name="genderCategory" label="Students served" required options={GENDER_CATEGORY_OPTIONS} />
+              <RHFSelect control={form.control} name="lgaName" label="LGA" required options={lgaOptions} />
+              <RHFText control={form.control} name="lgaCode" label="LGA code" />
+              <RHFText control={form.control} name="zoneName" label="Zone (auto from LGA)" />
+              <RHFText control={form.control} name="cluster" label="Inspectorate cluster" />
+              <RHFText control={form.control} name="ward" label="Ward" />
+              <RHFText control={form.control} name="community" label="Community" />
+              <RHFText control={form.control} name="address" label="Address" />
+              <RHFNumber control={form.control} name="latitude" label="Latitude" step={0.0001} />
+              <RHFNumber control={form.control} name="longitude" label="Longitude" step={0.0001} />
+              <RHFNumber control={form.control} name="dateEstablished" label="Year established" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                {editing ? "Save changes" : "Add school"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

@@ -19,13 +19,28 @@ export const RegisterSchema = z
       .string()
       .min(1, "Email is required")
       .email("Enter a valid email address"),
-    phoneNumber: z.string().min(7, "Enter a valid phone number"),
+    phoneNumber: z
+      .string()
+      .min(7, "Enter a valid phone number")
+      .max(40, "Must be 40 characters or fewer"),
     password: z.string().min(8, "Password must be at least 8 characters"),
     confirmPassword: z.string().min(1, "Confirm your password"),
+    // Self-service account type. PRINCIPAL must also pick their school.
+    role: z.enum(["LIE", "PRINCIPAL"]),
+    requestedSchoolId: z.string().optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "Passwords do not match",
     path: ["confirmPassword"],
+  })
+  .superRefine((d, ctx) => {
+    if (d.role === "PRINCIPAL" && !d.requestedSchoolId?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["requestedSchoolId"],
+        message: "Select the school you are the principal of.",
+      });
+    }
   });
 
 export type RegisterSchemaType = z.infer<typeof RegisterSchema>;

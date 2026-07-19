@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useParams } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Pencil, Star, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Form } from "@/components/ui/form";
 import {
   listStaff,
   createStaff,
@@ -22,32 +25,25 @@ import {
   ApiError,
   STAFF_TYPES,
   EMPLOYMENT_TYPES,
-  QUALIFICATIONS,
   type StaffRecord,
   type StaffInput,
   type RegisterList,
 } from "@/lib/api";
+import { StaffSchema, type StaffSchemaType } from "@/lib/schemas";
+import { useReferenceOptions } from "@/lib/use-reference";
 import { RegisterShell } from "../../../_components/register-shell";
 import {
-  TextField,
-  NumberField,
-  SelectField,
-  DateField,
-  ToggleField,
-  GenderField,
-} from "../../../_components/form-fields";
+  RHFText,
+  RHFNumber,
+  RHFSelect,
+  RHFDate,
+  RHFSwitch,
+} from "../../../_components/rhf-fields";
 
-const EMPTY: StaffInput = {
-  staffCode: "",
-  firstName: "",
-  lastName: "",
-  gender: "MALE",
-  staffType: "",
-  employmentType: "",
-  qualification: "",
-  isResidentInCommunity: false,
-  isHeadTeacher: false,
-};
+const GENDER_OPTIONS = [
+  { value: "MALE", label: "Male" },
+  { value: "FEMALE", label: "Female" },
+];
 
 export default function StaffPage() {
   const { id } = useParams<{ id: string }>();
@@ -200,34 +196,41 @@ function StaffDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState<StaffInput>(
-    editing ? { ...(editing as StaffInput) } : EMPTY,
-  );
-  const [saving, startSave] = useTransition();
-  const set = (p: Partial<StaffInput>) => setForm((f) => ({ ...f, ...p }));
+  const form = useForm<StaffSchemaType>({
+    resolver: zodResolver(StaffSchema),
+    defaultValues: {
+      staffCode: editing?.staffCode ?? "",
+      firstName: editing?.firstName ?? "",
+      middleName: editing?.middleName ?? "",
+      lastName: editing?.lastName ?? "",
+      gender: editing?.gender ?? "",
+      dateOfBirth: editing?.dateOfBirth ?? "",
+      phoneNumber: editing?.phoneNumber ?? "",
+      staffType: editing?.staffType ?? "",
+      employmentType: editing?.employmentType ?? "",
+      qualification: editing?.qualification ?? "",
+      subject: editing?.subject ?? "",
+      dateOfFirstAppointment: editing?.dateOfFirstAppointment ?? "",
+      datePostedToSchool: editing?.datePostedToSchool ?? "",
+      isResidentInCommunity: editing?.isResidentInCommunity ?? false,
+      yearsAtCurrentSchool: editing?.yearsAtCurrentSchool ?? undefined,
+      isHeadTeacher: editing?.isHeadTeacher ?? false,
+    },
+  });
+  const submitting = form.formState.isSubmitting;
+  const { options: qualifications } = useReferenceOptions("qualifications");
+  const { options: subjects } = useReferenceOptions("subjects");
 
-  const save = () => {
-    const required: [keyof StaffInput, string][] = [
-      ["staffCode", "Staff ID"],
-      ["firstName", "First name"],
-      ["lastName", "Surname"],
-      ["staffType", "Staff type"],
-      ["employmentType", "Employment type"],
-      ["qualification", "Qualification"],
-    ];
-    for (const [k, label] of required) {
-      if (!form[k]) return toast.error(`${label} is required.`);
+  const onSubmit = async (values: StaffSchemaType) => {
+    try {
+      const payload = values as unknown as StaffInput;
+      if (editing) await updateStaff(schoolId, editing.id, payload);
+      else await createStaff(schoolId, payload);
+      toast.success(editing ? "Staff updated." : "Staff added.");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
     }
-    startSave(async () => {
-      try {
-        if (editing) await updateStaff(schoolId, editing.id, form);
-        else await createStaff(schoolId, form);
-        toast.success(editing ? "Staff updated." : "Staff added.");
-        onSaved();
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Couldn't save.");
-      }
-    });
   };
 
   return (
@@ -236,45 +239,49 @@ function StaffDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "Edit staff member" : "Add staff member"}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="Staff ID" required value={form.staffCode} onChange={(v) => set({ staffCode: v ?? "" })} />
-          <GenderField required value={form.gender} onChange={(v) => set({ gender: v })} />
-          <TextField label="First name" required value={form.firstName} onChange={(v) => set({ firstName: v ?? "" })} />
-          <TextField label="Middle name" value={form.middleName} onChange={(v) => set({ middleName: v })} />
-          <TextField label="Surname" required value={form.lastName} onChange={(v) => set({ lastName: v ?? "" })} />
-          <DateField label="Date of birth" value={form.dateOfBirth} onChange={(v) => set({ dateOfBirth: v })} />
-          <TextField label="Phone number" value={form.phoneNumber} onChange={(v) => set({ phoneNumber: v })} />
-          <SelectField label="Staff type" required options={STAFF_TYPES} value={form.staffType} onChange={(v) => set({ staffType: v ?? "" })} />
-          <SelectField label="Employment type" required options={EMPLOYMENT_TYPES} value={form.employmentType} onChange={(v) => set({ employmentType: v ?? "" })} />
-          <SelectField label="Highest qualification" required options={QUALIFICATIONS} value={form.qualification} onChange={(v) => set({ qualification: v ?? "" })} />
-          <TextField label="Subject (if teaching)" value={form.subject} onChange={(v) => set({ subject: v })} />
-          <DateField label="First appointment" value={form.dateOfFirstAppointment} onChange={(v) => set({ dateOfFirstAppointment: v })} />
-          <DateField label="Posted to school" value={form.datePostedToSchool} onChange={(v) => set({ datePostedToSchool: v })} />
-          <NumberField label="Years at this school" min={0} value={form.yearsAtCurrentSchool} onChange={(v) => set({ yearsAtCurrentSchool: v })} />
-          <div className="sm:col-span-2">
-            <ToggleField
-              label="Lives within the school community?"
-              value={form.isResidentInCommunity}
-              onChange={(v) => set({ isResidentInCommunity: v })}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <ToggleField
-              label="Head teacher / principal? (only one per school)"
-              value={form.isHeadTeacher}
-              onChange={(v) => set({ isHeadTeacher: v })}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={saving} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            {editing ? "Save changes" : "Add staff"}
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <RHFText control={form.control} name="staffCode" label="Staff ID" required />
+              <RHFSelect control={form.control} name="gender" label="Gender" required options={GENDER_OPTIONS} />
+              <RHFText control={form.control} name="firstName" label="First name" required />
+              <RHFText control={form.control} name="middleName" label="Middle name" />
+              <RHFText control={form.control} name="lastName" label="Surname" required />
+              <RHFDate control={form.control} name="dateOfBirth" label="Date of birth" />
+              <RHFText control={form.control} name="phoneNumber" label="Phone number" />
+              <RHFSelect control={form.control} name="staffType" label="Staff type" required options={STAFF_TYPES} />
+              <RHFSelect control={form.control} name="employmentType" label="Employment type" required options={EMPLOYMENT_TYPES} />
+              <RHFSelect control={form.control} name="qualification" label="Highest qualification" required options={qualifications} />
+              <RHFSelect control={form.control} name="subject" label="Subject (if teaching)" options={subjects} />
+              <RHFDate control={form.control} name="dateOfFirstAppointment" label="First appointment" />
+              <RHFDate control={form.control} name="datePostedToSchool" label="Posted to school" />
+              <RHFNumber control={form.control} name="yearsAtCurrentSchool" label="Years at this school" min={0} />
+              <div className="sm:col-span-2">
+                <RHFSwitch
+                  control={form.control}
+                  name="isResidentInCommunity"
+                  label="Lives within the school community?"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <RHFSwitch
+                  control={form.control}
+                  name="isHeadTeacher"
+                  label="Head teacher / principal? (only one per school)"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting} className="bg-[#0b6b3a] text-white hover:bg-[#095a31]">
+                {submitting && <Loader2 className="size-4 animate-spin" />}
+                {editing ? "Save changes" : "Add staff"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
