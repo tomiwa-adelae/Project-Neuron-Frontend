@@ -44,6 +44,7 @@ import {
   type PeriodSchemaType,
 } from "@/lib/schemas";
 import { RHFText, RHFDate, RHFNumber, RHFSwitch } from "../../_components/rhf-fields";
+import { ConfirmButton } from "../../_components/confirm-button";
 
 export default function SessionsPage() {
   const [rows, setRows] = useState<SessionRecord[]>([]);
@@ -222,12 +223,6 @@ function PeriodsDialog({
   }, [session.id]);
 
   const onActivate = (p: CapturePeriod) => {
-    if (
-      !confirm(
-        `Activate "${p.name}"? This closes the current period and starts a fresh capture round. Closed periods become read-only.`,
-      )
-    )
-      return;
     startBusy(async () => {
       try {
         await activatePeriod(p.id);
@@ -301,14 +296,21 @@ function PeriodsDialog({
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {!p.isCurrent && (
-                        <Button
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() => onActivate(p)}
-                          className="h-8 text-xs"
+                        <ConfirmButton
+                          title={`Activate "${p.name}"?`}
+                          description="This closes the current period and starts a fresh capture round. Closed periods become read-only."
+                          confirmLabel="Activate"
+                          destructive={false}
+                          onConfirm={() => onActivate(p)}
                         >
-                          Activate
-                        </Button>
+                          <Button
+                            variant="outline"
+                            disabled={busy}
+                            className="h-8 text-xs"
+                          >
+                            Activate
+                          </Button>
+                        </ConfirmButton>
                       )}
                       {!p.closedAt && (
                         <button

@@ -29,6 +29,7 @@ import {
 } from "@/lib/api";
 import { AscSchema, type AscSchemaType } from "@/lib/schemas";
 import { useReferenceOptions } from "@/lib/use-reference";
+import { ConfirmButton } from "../../../_components/confirm-button";
 import { RegisterShell } from "../../../_components/register-shell";
 import { RHFNumber, RHFSelect } from "../../../_components/rhf-fields";
 
@@ -154,13 +155,21 @@ export default function AscPage() {
                         >
                           <Pencil className="size-4" />
                         </button>
-                        <button
-                          onClick={() => onDelete(r)}
-                          className="rounded p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-600"
-                          aria-label="Delete"
+                        <ConfirmButton
+                          title="Remove this row?"
+                          description={`This deletes the ${r.classLevel} · ${
+                            r.gender === "MALE" ? "Male" : "Female"
+                          } census row. This can't be undone.`}
+                          confirmLabel="Remove"
+                          onConfirm={() => onDelete(r)}
                         >
-                          <Trash2 className="size-4" />
-                        </button>
+                          <button
+                            className="rounded p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-600"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </ConfirmButton>
                       </div>
                     </td>
                   </tr>

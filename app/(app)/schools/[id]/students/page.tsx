@@ -33,6 +33,7 @@ import {
 } from "@/lib/api";
 import { StudentSchema, type StudentSchemaType } from "@/lib/schemas";
 import { useReferenceOptions } from "@/lib/use-reference";
+import { ConfirmButton } from "../../../_components/confirm-button";
 import { RegisterShell } from "../../../_components/register-shell";
 import {
   RHFText,
@@ -153,13 +154,19 @@ export default function StudentsPage() {
                   >
                     <Pencil className="size-4" />
                   </button>
-                  <button
-                    onClick={() => onDelete(r)}
-                    className="rounded p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-600"
-                    aria-label="Delete"
+                  <ConfirmButton
+                    title="Remove this student?"
+                    description={`This deletes ${r.firstName} ${r.lastName} (${r.studentCode}) from the register. This can't be undone.`}
+                    confirmLabel="Remove"
+                    onConfirm={() => onDelete(r)}
                   >
-                    <Trash2 className="size-4" />
-                  </button>
+                    <button
+                      className="rounded p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-600"
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </ConfirmButton>
                 </div>
               </li>
             ))}

@@ -37,6 +37,7 @@ import {
 } from "@/lib/api";
 import { MediaMetaSchema, type MediaMetaSchemaType } from "@/lib/schemas";
 import { useReferenceOptions } from "@/lib/use-reference";
+import { ConfirmButton } from "../../../_components/confirm-button";
 import { RegisterShell } from "../../../_components/register-shell";
 import { RHFSelect, RHFTextarea, RHFSwitch } from "../../../_components/rhf-fields";
 
@@ -173,13 +174,19 @@ export default function MediaPage() {
                     >
                       <Pencil className="size-4" />
                     </button>
-                    <button
-                      onClick={() => onDelete(m)}
-                      className="rounded bg-white/90 p-1.5 text-red-600 hover:bg-white"
-                      aria-label="Delete"
+                    <ConfirmButton
+                      title="Delete this file?"
+                      description={`This permanently deletes "${m.caption}" (${m.category}). This can't be undone.`}
+                      confirmLabel="Delete"
+                      onConfirm={() => onDelete(m)}
                     >
-                      <Trash2 className="size-4" />
-                    </button>
+                      <button
+                        className="rounded bg-white/90 p-1.5 text-red-600 hover:bg-white"
+                        aria-label="Delete"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </ConfirmButton>
                   </div>
                 </div>
                 <div className="p-3">

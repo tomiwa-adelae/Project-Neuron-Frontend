@@ -337,11 +337,13 @@ export const ROAD_SURFACE_TYPES = [
   "Footpath Only",
   "None",
 ] as const;
+// Value is the classification the backend validates/scores against; the label
+// carries the guide's distance range so enumerators bucket consistently.
 export const FOREST_PROXIMITIES = [
-  "Adjacent",
-  "Near",
-  "Moderate",
-  "Distant",
+  { value: "Adjacent", label: "Adjacent (0-0.5km)" },
+  { value: "Near", label: "Near (0.5-2km)" },
+  { value: "Moderate", label: "Moderate (2-5km)" },
+  { value: "Distant", label: "Distant (5km+)" },
 ] as const;
 export const FENCE_STATUSES = ["None", "Partial", "Full"] as const;
 export const FENCE_TYPES = [
@@ -1034,9 +1036,22 @@ export const SCHOOL_TYPE_OPTIONS = [
   { value: "COMBINED_JSS_SSS", label: "JSS + SSS" },
   { value: "COMBINED_PRY_SSS", label: "Primary–SSS" },
 ] as const;
-export const OWNERSHIP_OPTIONS = ["PUBLIC", "MISSION", "PRIVATE"] as const;
-export const CATEGORY_OPTIONS = ["DAY", "BOARDING", "SEMI_BOARDING"] as const;
-export const GENDER_CATEGORY_OPTIONS = ["MIXED", "BOYS_ONLY", "GIRLS_ONLY"] as const;
+// Value is the DB enum; label is the guide's human-readable wording.
+export const OWNERSHIP_OPTIONS = [
+  { value: "PUBLIC", label: "Public" },
+  { value: "MISSION", label: "Mission" },
+  { value: "PRIVATE", label: "Private" },
+] as const;
+export const CATEGORY_OPTIONS = [
+  { value: "DAY", label: "Day" },
+  { value: "BOARDING", label: "Boarding" },
+  { value: "SEMI_BOARDING", label: "Semi-Boarding" },
+] as const;
+export const GENDER_CATEGORY_OPTIONS = [
+  { value: "MIXED", label: "Mixed" },
+  { value: "BOYS_ONLY", label: "Boys Only" },
+  { value: "GIRLS_ONLY", label: "Girls Only" },
+] as const;
 
 export interface SchoolInput {
   code: string;
